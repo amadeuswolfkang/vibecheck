@@ -1,115 +1,160 @@
-import Image from "next/image";
-import { Geist, Geist_Mono } from "next/font/google";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import { useState } from 'react';
 
 export default function Home() {
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [results, setResults] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setLoading(true);
+    const res = await fetch('/api/vibecheck', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: input }),
+    });
+    const data = await res.json();
+    setResults(data);
+    setLoading(false);
+  }
+
   return (
-    <div
-      className={`${geistSans.className} ${geistMono.className} grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]`}
-    >
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              pages/index.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="min-h-screen bg-gray-100 p-6 text-gray-800 font-sans">
+      <style jsx global>{`
+        body {
+          font-family: 'Inter', sans-serif;
+        }
+      `}</style>
+
+      <div className="max-w-2xl mx-auto">
+        <h1 className="text-3xl font-bold mb-8 text-indigo-600">Vibecheck</h1>
+
+        <form onSubmit={handleSubmit} className="mb-12 space-y-5">
+          <input
+            type="text"
+            className="w-full p-4 border border-gray-300 rounded text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-200"
+            placeholder="Enter a keyword"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+          />
+          <button
+            type="submit"
+            className="w-full bg-indigo-500 text-white py-3 rounded hover:bg-indigo-600 transition"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=default-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+            {loading ? 'Checking the vibes...' : 'Run Vibecheck'}
+          </button>
+        </form>
+
+        {!results && (
+          <div className="space-y-8">
+            {[
+              {
+                title: '🔍 Multistream Input',
+                text: 'Connect Reddit, Gmail, Outlook, Discord, and more to analyze user feedback from all channels.',
+              },
+              {
+                title: '🧠 Smart Clustering',
+                text: 'Automatically groups related comments into themes like praise, pain points, and surprising insights.',
+              },
+              {
+                title: '📊 Insight Summaries',
+                text: 'Summarizes each cluster into a short, readable insight with keywords and example comments.',
+              },
+              {
+                title: '📥 Inbox Support',
+                text: 'Coming soon: connect your Gmail or Outlook inbox to pull feedback from support emails automatically.',
+              },
+            ].map((item, i) => (
+              <div
+                key={i}
+                className="bg-white px-6 py-6 rounded shadow-sm border border-gray-100 hover:shadow-md transition"
+              >
+                <h2 className="text-lg font-semibold mb-2 text-gray-900">
+                  {item.title}
+                </h2>
+                <p className="text-gray-700 text-base leading-relaxed">{item.text}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {results && (
+          <div className="space-y-8 animate-fade-in">
+            {/* Summary Card */}
+            <div className="bg-white px-6 py-6 rounded shadow text-gray-800 hover:shadow-md transition">
+              <h2 className="text-xl font-semibold mb-4 text-gray-900">📌 Summary</h2>
+              <p className="text-gray-800 mb-6 whitespace-pre-line text-base leading-relaxed max-w-prose">
+                {results.overallSummary}
+              </p>
+
+              <div className="text-sm text-gray-700 space-y-6">
+                <div>
+                  <span className="inline-block text-emerald-600 bg-emerald-100 px-2 py-1 rounded font-semibold text-sm">
+                    Most Praised
+                  </span>
+                  <p className="mt-2 text-base leading-relaxed">{results.topPraise}</p>
+                </div>
+
+                <div>
+                  <span className="inline-block text-rose-600 bg-rose-100 px-2 py-1 rounded font-semibold text-sm">
+                    Most Frustrating
+                  </span>
+                  <p className="mt-2 text-base leading-relaxed">{results.topPain}</p>
+                </div>
+
+                <div>
+                  <span className="inline-block text-orange-600 bg-orange-100 px-2 py-1 rounded font-semibold text-sm">
+                    Most Intense Feedback
+                  </span>
+                  <p className="mt-2 text-base leading-relaxed">{results.topIntensity}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Key Feedback Points */}
+            <div className="bg-white px-6 py-6 rounded shadow text-gray-800 hover:shadow-md transition">
+              <h2 className="text-xl font-semibold mb-4 text-gray-900">🎯 Key Feedback Points</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8 text-base leading-relaxed">
+                <div>
+                  <h3 className="font-semibold text-rose-500 mb-3">Top Pain Points</h3>
+                  <ul className="space-y-5">
+                    {results.painPoints?.map((point, i) => (
+                      <li key={i}>
+                        <p className="text-gray-800 max-w-prose pt-1">
+                          {typeof point === 'string' ? point : point.text}
+                        </p>
+                        {point.source && (
+                          <div className="mt-2 text-sm text-gray-600 italic border-l-[3px] border-gray-200 pl-6 py-2">
+                            {point.source}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div>
+                  <h3 className="font-semibold text-emerald-500 mb-3">Top Praise Points</h3>
+                  <ul className="space-y-5">
+                    {results.praisePoints?.map((point, i) => (
+                      <li key={i}>
+                        <p className="text-gray-800 max-w-prose pt-1">
+                          {typeof point === 'string' ? point : point.text}
+                        </p>
+                        {point.source && (
+                          <div className="mt-2 text-sm text-gray-600 italic border-l-[3px] border-gray-200 pl-6 py-2">
+                            {point.source}
+                          </div>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }
