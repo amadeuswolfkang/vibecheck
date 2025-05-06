@@ -24,7 +24,7 @@ export async function fetchRedditComments(
 
   for (const post of results) {
     try {
-      const fullPost = await post.expandReplies({ limit: 5, depth: 1 });
+      const fullPost = await (post as any).expandReplies({ limit: 5, depth: 1 });
       fullPost.comments?.forEach((c: any) => {
         if (c.body) comments.push(c.body);
       });
