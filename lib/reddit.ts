@@ -8,19 +8,23 @@ const reddit = new snoowrap({
   password: process.env.REDDIT_PASSWORD!,
 });
 
-export async function fetchRedditComments(keyword: string, limit = 25) {
+// Return type explicitly defined to avoid circular type reference
+export async function fetchRedditComments(
+  keyword: string,
+  limit = 25
+): Promise<string[]> {
   const results = await reddit.search({
     query: keyword,
     sort: "relevance",
     time: "week",
-    limit: 5, // ⬅️ Reduce from 25 to 5
+    limit: 5,
   });
 
   const comments: string[] = [];
 
   for (const post of results) {
     try {
-      const fullPost = await post.expandReplies({ limit: 5, depth: 1 }); // reduce comment fetches
+      const fullPost = await post.expandReplies({ limit: 5, depth: 1 });
       fullPost.comments?.forEach((c: any) => {
         if (c.body) comments.push(c.body);
       });
