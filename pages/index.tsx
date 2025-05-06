@@ -1,11 +1,20 @@
 import { useState } from 'react';
 
+interface VibecheckResults {
+  overallSummary: string;
+  topPraise: string;
+  topPain: string;
+  topIntensity: string;
+  praisePoints: { text: string; source?: string }[];
+  painPoints: { text: string; source?: string }[];
+}
+
 export default function Home() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState(null);
+  const [results, setResults] = useState<VibecheckResults | null>(null);
 
-  async function handleSubmit(e) {
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setLoading(true);
     const res = await fetch('/api/vibecheck', {
@@ -124,7 +133,7 @@ export default function Home() {
                           {typeof point === 'string' ? point : point.text}
                         </p>
                         {point.source && (
-                          <div className="mt-2 text-sm text-gray-600 italic border-l-[3px] border-gray-200 pl-6 py-2">
+                          <div className="mt-2 text-sm text-gray-600 italic border-l-[3px] border-gray-200 pl-6">
                             {point.source}
                           </div>
                         )}
@@ -142,7 +151,7 @@ export default function Home() {
                           {typeof point === 'string' ? point : point.text}
                         </p>
                         {point.source && (
-                          <div className="mt-2 text-sm text-gray-600 italic border-l-[3px] border-gray-200 pl-6 py-2">
+                          <div className="mt-2 text-sm text-gray-600 italic border-l-[3px] border-gray-200 pl-6">
                             {point.source}
                           </div>
                         )}
