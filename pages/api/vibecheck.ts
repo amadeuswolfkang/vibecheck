@@ -75,10 +75,11 @@ export default async function handler(
 
 Return only valid JSON in the following format:
 {
-  "overallSummary": "A 5–7 sentence summary of overall sentiment and themes.",
-  "topPraise": "The most commonly praised aspect or feature.",
-  "topPain": "The most common complaint or pain point.",
-  "topIntensity": "The strongest or most emotional opinion.",
+  "overallSummary": "A concise, 5–7 sentence summary capturing the overall tone and major themes of the feedback. Include both positive and negative sentiments, highlighting general user impressions, common frustrations, and frequently requested improvements. Focus on a balanced, professional tone that reflects the broader user experience without getting lost in overly specific details (e.g. 'Users generally appreciate the intuitive design but often mention performance issues as a pain point')."
+  "topPraise": "The most commonly praised aspect, ideally related to a specific feature, design choice, or user experience element (e.g. 'Users love the clean interface', 'The onboarding flow is intuitive', 'The dark mode is highly appreciated').",
+  "topPain": "The most common complaint or pain point, ideally related to a specific feature, design choice, or user experience element (e.g. 'Users find the search function slow', 'The app crashes on older devices', 'Navigation is confusing').",
+  "topIntensity": "The strongest or most emotional opinion, ideally related to a specific feature, design choice, or user experience element (e.g. 'Users are frustrated with slow loading times', 'Users feel strongly about the lack of customization options').",
+  "topRequestedFeature": "The most commonly requested specific feature or improvement, ideally a concrete product addition (e.g. 'Add dark mode', 'Support for offline use').",
   "praisePoints": [
     {
       "text": "Summarized insight (e.g. 'Users love the minimal design')",
@@ -90,19 +91,24 @@ Return only valid JSON in the following format:
       "text": "Summarized issue (e.g. 'Shipping delays are a common frustration')",
       "source": "A real quoted Reddit comment from the input that best illustrates this pain point."
     }
+  ],
+  "requestedFeatures": [
+    {
+      "text": "A specific feature request that clearly describes a desired addition or enhancement (e.g. 'Add a dark mode', 'Support for offline use', 'Customizable notifications')",
+      "source": "A real quoted Reddit comment from the input that best illustrates this specific feature request."
+    }
   ]
 }
 
 Instructions:
-- Include 3 to 5 items in both praisePoints and painPoints (or fewer if there aren't enough unique insights).
-- Each "text" should summarize the insight or feedback theme.
-- Each "source" must be a direct, unedited quote from one of the actual Reddit comments provided. Do not paraphrase, truncate, reword, or synthesize.
-- Do not invent or simulate quotes. Do not generate placeholder users or dialogue.
-- Only select full and original comments from the provided input text.
-- Do not include typographic quotation marks in the comment.
-- If no appropriate quote exists for a point, omit that point entirely.
-
-Return a valid JSON object only. No markdown, no commentary, no code fences.
+- Include 3 to 5 items for each section (or fewer if there aren't enough unique insights).
+- Each text must summarize a unique insight or feedback theme. Do not repeat the same insight across multiple items.
+- Focus on specific features, designs, or parts of the user experience (e.g. 'Users love the minimal design', 'Navigation is confusing', 'Users want a dark mode'). Avoid vague generalizations like 'Good quality' or 'Bad experience'.
+- Requested features should be specific, actionable product additions or enhancements (e.g. 'Add dark mode', 'Support offline mode', 'Customizable notifications'). Avoid vague, general improvements like 'Better quality' or 'Fix performance'.
+- Each source must be a direct, unedited quote from the input text. Do not paraphrase, truncate, reword, or synthesize.
+- Do not invent or simulate quotes. Use only full, original comments.
+- Do not include typographic quotation marks in the comment text.
+- Return only a valid JSON object. No markdown, no code fences, no extra text, no commentary, no formatting.
 
 Comments:
 ${input}`,
