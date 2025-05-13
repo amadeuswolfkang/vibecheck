@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { signIn, signOut, useSession, getSession } from 'next-auth/react';
 
 interface VibecheckResults {
   overallSummary: string;
@@ -6,210 +7,269 @@ interface VibecheckResults {
   topPain: string;
   topIntensity: string;
   topRequestedFeature: string;
-  praisePoints: { text: string; source?: string }[];
-  painPoints: { text: string; source?: string }[];
+  praisePoints: { 
+    text: string; 
+    source?: string; 
+    sender?: string; 
+    senderEmail?: string; 
+    date?: string; 
+  }[];
+  painPoints: { 
+    text: string; 
+    source?: string; 
+    sender?: string; 
+    senderEmail?: string; 
+    date?: string; 
+  }[];
+  requestedFeatures: { 
+    text: string; 
+    source?: string; 
+    sender?: string; 
+    senderEmail?: string; 
+    date?: string; 
+  }[];
 }
 
-export default function Home() {
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<VibecheckResults | null>(null);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setLoading(true);
-    const res = await fetch('/api/vibecheck', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: input }),
-    });
-    const data = await res.json();
-    setResults(data);
-    setLoading(false);
+export default function Home() {
+  const { data: session } = useSession();
+  const [gmailLoading, setGmailLoading] = useState(false);
+  const [gmailResults, setGmailResults] = useState<VibecheckResults | null>(
+    null
+  );
+
+  async function handleGmailOnlyCheck() {
+    setGmailLoading(true);
+
+    try {
+      // Fetch the current session to get a fresh access token
+      const session = await getSession();
+
+      if (!session || !session.accessToken) {
+        console.error('No active session or missing access token');
+        setGmailLoading(false);
+        return;
+      }
+
+      const body = {
+        gmailAccessToken: session.accessToken,
+      };
+
+      const res = await fetch('/api/gmail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setGmailResults(data.gmailFeedback);
+      } else {
+        console.error('Error fetching Gmail data:', data);
+      }
+    } catch (error) {
+      console.error('Error in Gmail API call:', error);
+    } finally {
+      setGmailLoading(false);
+    }
   }
 
   return (
-    <main className="min-h-screen bg-gray-100 p-6 text-gray-800 font-sans">
+    <>
       <style jsx global>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
         body {
           font-family: 'Inter', sans-serif;
         }
       `}</style>
+      <main className="min-h-screen bg-slate-50 text-gray-900 px-4 py-4 flex flex-col items-center font-sans">
+        <div className="w-full max-w-2xl">
+          <h1 className="text-3xl font-bold mb-10 text-indigo-600 relative inline-block">
+            Vibecheck
+            <span className="absolute -bottom-2 left-0 w-12 h-1 bg-indigo-300 rounded-full"></span>
+          </h1>
 
-      <div className="max-w-2xl mx-auto">
-        <h1 className="text-3xl font-bold mb-8 text-indigo-600">Vibecheck</h1>
-
-        <form onSubmit={handleSubmit} className="mb-12 space-y-5">
-          <input
-            type="text"
-            className="w-full p-4 border border-gray-300 rounded text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-200"
-            placeholder="Enter a keyword"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-          />
-          <button
-            type="submit"
-            className="w-full bg-indigo-500 text-white py-3 rounded hover:bg-indigo-600 transition flex items-center justify-center"
-          >
-            {loading ? (
-              <svg
-                className="animate-spin h-6 w-6 text-white"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 50 50"
+          {!session ? (
+            <button
+              onClick={() => signIn('google')}
+              className="w-2/5 mx-auto flex justify-center bg-rose-500 text-white py-2 rounded-lg hover:bg-rose-600 transition mb-6 font-medium text-md min-h-[42px]"
+            >
+              Connect Gmail
+            </button>
+          ) : (
+            <div className="mb-6">
+              <p className="text-gray-800 mb-4 font-semibold text-center">
+                {session.user?.email}
+              </p>
+              <button
+                onClick={() => signOut()}
+                className="w-2/5 mx-auto flex justify-center bg-rose-500 text-white py-2 rounded-full hover:bg-rose-600 transition mb-6 font-medium text-md min-h-[42px]"
               >
-                <circle
-                  className="opacity-20"
-                  cx="25"
-                  cy="25"
-                  r="20"
-                  stroke="currentColor"
-                  strokeWidth="5"
+                Disconnect
+              </button>
+            </div>
+          )}
+
+          <button
+            onClick={handleGmailOnlyCheck}
+            className="w-2/5 mx-auto flex justify-center bg-emerald-500 text-white py-2 rounded-full hover:bg-emerald-600 transition mb-6 font-medium text-md min-h-[42px]"
+            disabled={!session || gmailLoading}
+          >
+            {gmailLoading ? (
+              <>
+                <svg
+                  className="animate-spin h-5 w-5 mx-auto"
+                  xmlns="http://www.w3.org/2000/svg"
+                  viewBox="0 0 24 24"
                   fill="none"
-                />
-                <path
-                  fill="currentColor"
-                  d="M25 5a20 20 0 0 1 20 20h-5a15 15 0 0 0-15-15V5z"
-                />
-              </svg>
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    className="opacity-25"
+                  ></circle>
+                  <path
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                    className="opacity-75"
+                  ></path>
+                </svg>
+              </>
             ) : (
-              'Vibecheck'
+              'Vibecheck (Gmail)'
             )}
           </button>
-        </form>
 
-        {!results && (
-          <div className="space-y-8">
-            {[
-              {
-                title: '🔍 Multistream Input',
-                text: 'Connect Reddit, Gmail, Outlook, Discord, and more to analyze user feedback from all channels.',
-              },
-              {
-                title: '🧠 Smart Clustering',
-                text: 'Automatically groups related comments into themes like praise, pain points, and surprising insights.',
-              },
-              {
-                title: '📊 Insight Summaries',
-                text: 'Summarizes each cluster into a short, readable insight with keywords and example comments.',
-              },
-              {
-                title: '📥 Inbox Support',
-                text: 'Coming soon: connect your Gmail or Outlook inbox to pull feedback from support emails automatically.',
-              },
-            ].map((item, i) => (
-              <div
-                key={i}
-                className="bg-white px-6 py-6 rounded shadow-sm border border-gray-100 hover:shadow-md transition"
-              >
-                <h2 className="text-lg font-semibold mb-2 text-gray-900">
-                  {item.title}
-                </h2>
-                <p className="text-gray-700 text-base leading-relaxed">
-                  {item.text}
-                </p>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {results && (
-          <div className="space-y-8 animate-fade-in">
-            {/* Summary Card */}
-            <div className="bg-white px-6 py-6 rounded shadow text-gray-800 hover:shadow-md transition">
-              <h2 className="text-xl font-semibold mb-4 text-gray-900">
-                📌 Summary
+          {gmailResults && (
+            <div className="space-y-6 mt-12">
+              <h2 className="text-2xl font-semibold mb-4 text-gray-800">
+                Gmail Inbox Feedback
               </h2>
-              <p className="text-gray-800 mb-6 whitespace-pre-line text-base leading-relaxed max-w-prose">
-                {results.overallSummary}
-              </p>
-
-              <div className="text-sm text-gray-700 space-y-6">
-                <div>
-                  <span className="inline-block text-blue-600 bg-blue-100 px-2 py-1 rounded font-semibold text-sm">
-                    Most Requested
-                  </span>
-                  <p className="mt-2 text-base leading-relaxed">
-                    {results.topRequestedFeature}
-                  </p>
-                </div>
-
-                <div>
-                  <span className="inline-block text-rose-600 bg-rose-100 px-2 py-1 rounded font-semibold text-sm">
-                    Most Painful
-                  </span>
-                  <p className="mt-2 text-base leading-relaxed">
-                    {results.topPain}
-                  </p>
-                </div>
-                <div>
-                  <span className="inline-block text-emerald-600 bg-emerald-100 px-2 py-1 rounded font-semibold text-sm">
-                    Most Praised
-                  </span>
-                  <p className="mt-2 text-base leading-relaxed">
-                    {results.topPraise}
-                  </p>
-                </div>
-                <div>
-                  <span className="inline-block text-orange-600 bg-orange-100 px-2 py-1 rounded font-semibold text-sm">
-                    Most Intense
-                  </span>
-                  <p className="mt-2 text-base leading-relaxed">
-                    {results.topIntensity}
-                  </p>
-                </div>
-              </div>
+              {renderFeedback(gmailResults)}
             </div>
+          )}
+        </div>
+      </main>
+    </>
+  );
+}
 
-            {/* Key Feedback Points */}
-            <div className="bg-white px-6 py-6 rounded shadow text-gray-800 hover:shadow-md transition">
-              <h2 className="text-xl font-semibold mb-4 text-gray-900">
-                🎯 Key Feedback Points
-              </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-8 text-base leading-relaxed">
-                <div>
-                  <h3 className="font-semibold text-rose-500 mb-3">
-                    Top Pain Points
-                  </h3>
-                  <ul className="space-y-5">
-                    {results.painPoints?.map((point, i) => (
-                      <li key={i}>
-                        <p className="text-gray-800 max-w-prose pt-1">
-                          {typeof point === 'string' ? point : point.text}
-                        </p>
-                        {point.source && (
-                          <div className="mt-2 text-sm text-gray-600 italic border-l-[3px] border-gray-200 pl-6">
-                            {point.source}
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+function renderFeedback(data: VibecheckResults) {
+  if (!data)
+    return <p className="text-gray-500 text-lg">No feedback available.</p>;
 
-                <div>
-                  <h3 className="font-semibold text-emerald-500 mb-3">
-                    Top Praise Points
-                  </h3>
-                  <ul className="space-y-5">
-                    {results.praisePoints?.map((point, i) => (
-                      <li key={i}>
-                        <p className="text-gray-800 max-w-prose pt-1">
-                          {typeof point === 'string' ? point : point.text}
-                        </p>
-                        {point.source && (
-                          <div className="mt-2 text-sm text-gray-600 italic border-l-[3px] border-gray-200 pl-6">
-                            {point.source}
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
+  return (
+    <div className="space-y-4">
+      <div className="bg-white p-6 rounded-xl border border-slate-300">
+        <h3 className="text-xl font-semibold mb-4 text-gray-800">📄 Summary</h3>
+        <p className="text-md text-gray-800">{data.overallSummary}</p>
+      </div>
+      <div className="bg-white p-6 rounded-xl border border-slate-300">
+        <div className="mb-6">
+          <span className="bg-green-100 text-emerald-700 text-sm font-semibold px-3 py-1 rounded-full">
+            Most Praised
+          </span>
+          <p className="text-md mt-2">{data.topPraise}</p>
+        </div>
+        <div className="mb-6">
+          <span className="bg-rose-100 text-rose-700 text-sm font-semibold px-3 py-1 rounded-full">
+            Most Painful
+          </span>
+          <p className="text-md mt-2">{data.topPain}</p>
+        </div>
+        <div className="mt-6">
+          <span className="bg-amber-100 text-amber-700 text-sm font-semibold px-3 py-1 rounded-full">
+            Most Intense
+          </span>
+          <p className="text-md mt-2">{data.topIntensity}</p>
+        </div>
+        <div className="mt-6">
+          <span className="bg-blue-100 text-blue-700 text-sm font-semibold px-3 py-1 rounded-full">
+            Most Requested
+          </span>
+          <p className="text-md mt-2">{data.topRequestedFeature}</p>
+        </div>
+      </div>
+
+      <div className="bg-white p-8 rounded-xl border border-slate-300">
+        <h2 className="text-xl font-semibold mb-4 text-gray-800">
+          🎯 Key Feedback Points
+        </h2>
+
+        <div className="grid grid-cols-2 gap-12">
+          {/* Top Pain Points */}
+{/* Top Pain Points */}
+<div>
+  <h3 className="text-lg font-semibold text-rose-500 mb-4">Top Pain Points</h3>
+  {data.painPoints.map((point, index) => {
+    const formattedDate = point.date
+      ? new Date(point.date).toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        })
+      : 'Unknown Date';
+    
+    return (
+      <div key={index} className="mb-8">
+        <p className="text-md text-gray-900 font-md">{point.text}</p>
+        <blockquote className="text-gray-600 italic border-l-4 border-gray-200 pl-4 mt-2">
+          {point.source}
+        </blockquote>
+        {point.sender && (
+          <div className="mt-2 flex flex-col text-sm">
+            <span className="bg-gray-100 text-gray-700 font-semibold px-2 py-0.5 rounded-full w-max mb-1">
+              {point.sender}
+            </span>
+            <span className="text-gray-500 text-xs">{point.senderEmail}</span>
+            <span className="text-gray-400 text-xs">{formattedDate}</span>
           </div>
         )}
       </div>
-    </main>
+    );
+  })}
+</div>
+
+{/* Top Praise Points */}
+<div>
+  <h3 className="text-lg font-semibold text-emerald-500 mb-4">Top Praise Points</h3>
+  {data.praisePoints.map((point, index) => {
+    const formattedDate = point.date
+      ? new Date(point.date).toLocaleDateString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+        })
+      : 'Unknown Date';
+    
+    return (
+      <div key={index} className="mb-8">
+        <p className="text-md text-gray-900 font-md">{point.text}</p>
+        <blockquote className="text-gray-600 italic border-l-4 border-gray-200 pl-4 mt-2">
+          {point.source}
+        </blockquote>
+        {point.sender && (
+          <div className="mt-2 flex flex-col text-sm">
+            <span className="bg-gray-100 text-gray-700 font-semibold px-2 py-0.5 rounded-full w-max mb-1">
+              {point.sender}
+            </span>
+            <span className="text-gray-500 text-xs">{point.senderEmail}</span>
+            <span className="text-gray-400 text-xs">{formattedDate}</span>
+          </div>
+        )}
+      </div>
+    );
+  })}
+</div>
+
+
+
+        </div>
+      </div>
+    </div>
   );
 }
