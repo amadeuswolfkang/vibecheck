@@ -4,15 +4,61 @@ import type {
   InternalEmailSentiment,
   Sentiment, 
   GmailMessage, 
-  VibecheckResults,
+  VibeloopResults,
   SentimentBreakdown 
 } from '../types/api';
 import { logger, tokenTracker } from '../utils/logging';
 import { SYSTEM_PROMPTS, FEEDBACK_RESPONSE_FORMAT } from '../constants/prompts';
+import { env } from '../lib/env';
+
+// OpenAI client configuration
+const OPENAI_CONFIG = {
+  MAX_RETRIES: 3,
+  TIMEOUT_MS: 30000, // 30 seconds
+  RETRY_DELAY_MS: 1000, // 1 second
+};
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
+  apiKey: env.OPENAI_API_KEY,
+  timeout: OPENAI_CONFIG.TIMEOUT_MS,
+  maxRetries: OPENAI_CONFIG.MAX_RETRIES,
 });
+
+// Retry wrapper for OpenAI API calls
+async function withOpenAIRetry<T>(
+  operation: () => Promise<T>,
+  context: string
+): Promise<T> {
+  let lastError: Error | null = null;
+  
+  for (let attempt = 1; attempt <= OPENAI_CONFIG.MAX_RETRIES; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      
+      // Log the retry attempt
+      logger.warn(`OpenAI API ${context} failed, attempt ${attempt}/${OPENAI_CONFIG.MAX_RETRIES}`, {
+        error: {
+          name: lastError.name,
+          message: lastError.message
+        },
+        attempt,
+        maxRetries: OPENAI_CONFIG.MAX_RETRIES
+      });
+
+      // Don't wait on the last attempt
+      if (attempt < OPENAI_CONFIG.MAX_RETRIES) {
+        await new Promise(resolve => 
+          setTimeout(resolve, OPENAI_CONFIG.RETRY_DELAY_MS * attempt)
+        );
+      }
+    }
+  }
+
+  // If we get here, all retries failed
+  throw new Error(`OpenAI API ${context} failed after ${OPENAI_CONFIG.MAX_RETRIES} attempts: ${lastError?.message}`);
+}
 
 // Increase batch size for processing more messages efficiently
 const BATCH_SIZE = 20;
@@ -55,10 +101,13 @@ export async function getEmailEmbeddings(messages: GmailMessage[]): Promise<Embe
     );
     
     try {
-      const response = await openai.embeddings.create({
-        model: 'text-embedding-ada-002',
-        input: texts,
-      });
+      const response = await withOpenAIRetry(
+        () => openai.embeddings.create({
+          model: 'text-embedding-ada-002',
+          input: texts,
+        }),
+        'embeddings generation'
+      );
 
       // Log token usage for embeddings
       tokenTracker.trackUsage('text-embedding-ada-002', {
@@ -200,13 +249,46 @@ function determineSentiment(score: number): { sentiment: Sentiment; confidence: 
   }
 }
 
+const DEFAULT_RESULTS: VibeloopResults = {
+  overallSummary: '',
+  topPraise: '',
+  topPain: '',
+  topIntensity: '',
+  topRequestedFeature: '',
+  praisePoints: [],
+  painPoints: [],
+  requestedFeatures: [],
+  sentimentBreakdown: {
+    positive: 0,
+    negative: 0,
+    mixed: 0,
+    neutral: 0
+  }
+};
+
+function isVibeloopResults(value: unknown): value is VibeloopResults {
+  if (!value || typeof value !== 'object') return false;
+  
+  const result = value as VibeloopResults;
+  return (
+    typeof result.overallSummary === 'string' &&
+    typeof result.topPraise === 'string' &&
+    typeof result.topPain === 'string' &&
+    typeof result.topIntensity === 'string' &&
+    typeof result.topRequestedFeature === 'string' &&
+    Array.isArray(result.praisePoints) &&
+    Array.isArray(result.painPoints) &&
+    Array.isArray(result.requestedFeatures)
+  );
+}
+
 export async function generateDetailedAnalysis(
   messages: GmailMessage[],
   sentiments: EmailSentiment[]
-): Promise<VibecheckResults> {
+): Promise<VibeloopResults> {
   // Process messages in chunks to avoid token limits
   const ANALYSIS_CHUNK_SIZE = 25;
-  const chunks: VibecheckResults[] = [];
+  const chunks: VibeloopResults[] = [];
   
   // Validate input arrays
   if (messages.length === 0 || sentiments.length === 0) {
@@ -214,17 +296,7 @@ export async function generateDetailedAnalysis(
       messageCount: messages.length,
       sentimentCount: sentiments.length
     });
-    return {
-      overallSummary: "No messages to analyze.",
-      topPraise: "No praise points found.",
-      topPain: "No pain points found.",
-      topIntensity: "No intense feedback found.",
-      topRequestedFeature: "No feature requests found.",
-      praisePoints: [],
-      painPoints: [],
-      requestedFeatures: [],
-      sentimentBreakdown: { positive: 0, negative: 0, mixed: 0, neutral: 0 }
-    };
+    return DEFAULT_RESULTS;
   }
 
   if (messages.length !== sentiments.length) {
@@ -251,6 +323,8 @@ export async function generateDetailedAnalysis(
       sentiment: chunkSentiments[index],
       sender: msg.sender,
       date: msg.date,
+      messageId: msg.messageId,
+      id: msg.id
     }));
     
     try {
@@ -289,7 +363,7 @@ export async function generateDetailedAnalysis(
       }
 
       try {
-        const chunkResult = JSON.parse(rawResult) as VibecheckResults;
+        const chunkResult = JSON.parse(rawResult) as VibeloopResults;
         validateChunkResult(chunkResult);
         chunks.push(chunkResult);
       } catch (parseErr) {
@@ -313,7 +387,7 @@ export async function generateDetailedAnalysis(
   return mergeAnalysisChunks(chunks);
 }
 
-function validateChunkResult(result: any): asserts result is VibecheckResults {
+function validateChunkResult(result: any): asserts result is VibeloopResults {
   const requiredFields = [
     'overallSummary',
     'topPraise',
@@ -351,19 +425,9 @@ function validateChunkResult(result: any): asserts result is VibecheckResults {
   }
 }
 
-function mergeAnalysisChunks(chunks: VibecheckResults[]): VibecheckResults {
+function mergeAnalysisChunks(chunks: VibeloopResults[]): VibeloopResults {
   if (chunks.length === 0) {
-    return {
-      overallSummary: "No analysis results available.",
-      topPraise: "No praise points found.",
-      topPain: "No pain points found.",
-      topIntensity: "No intense feedback found.",
-      topRequestedFeature: "No feature requests found.",
-      praisePoints: [],
-      painPoints: [],
-      requestedFeatures: [],
-      sentimentBreakdown: { positive: 0, negative: 0, mixed: 0, neutral: 0 }
-    };
+    return DEFAULT_RESULTS;
   }
 
   if (chunks.length === 1) return chunks[0];

@@ -23,7 +23,8 @@ export interface ErrorResponse {
 }
 
 export interface GmailMessage {
-  id: string;
+  id: string;  // Gmail's internal ID
+  messageId: string;  // RFC 2822 Message-ID header
   sender: string;
   subject: string;
   date: string;
@@ -43,6 +44,8 @@ export interface FeedbackPoint {
   sender?: string;
   subject?: string;
   date?: string;
+  messageId?: string;  // RFC 2822 Message-ID header
+  id?: string;  // Gmail's internal ID
   sentiment: EmailSentiment;
   priority?: number;  // Priority score between 0 and 1
   category?: string[];  // Tags/categories for the feedback
@@ -52,7 +55,7 @@ export interface FeedbackPoint {
   };
 }
 
-export interface VibecheckResults {
+export interface VibeloopResults {
   overallSummary: string;
   topPraise: string;
   topPain: string;
@@ -80,5 +83,5 @@ export interface VibecheckResults {
 }
 
 export interface GmailData {
-  gmailFeedback: VibecheckResults;
+  gmailFeedback: VibeloopResults;
 } 

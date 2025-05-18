@@ -1,3 +1,5 @@
+import { ENV, LOG_CONFIG, removeSensitiveData } from './config';
+
 type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 interface LogEntry {
@@ -11,7 +13,6 @@ interface LogEntry {
 class Logger {
   private static instance: Logger;
   private logs: LogEntry[] = [];
-  private readonly maxLogs = 1000;
   
   private constructor() {}
   
@@ -32,12 +33,32 @@ class Logger {
     };
   }
   
+  private sanitizeError(error: Error): Partial<Error> {
+    if (ENV.isProd) {
+      return {
+        message: error.message,
+        name: error.name
+      };
+    }
+    return error;
+  }
+  
   private log(level: LogLevel, message: string, context?: Record<string, unknown>, error?: Error) {
-    const entry = this.formatMessage(level, message, context, error);
+    // Skip debug logs in production
+    if (ENV.isProd && level === 'debug') return;
+    
+    // Skip all logs in test unless explicitly enabled
+    if (ENV.isTest && !LOG_CONFIG.enableTestLogs) return;
+
+    // Always remove sensitive data, regardless of environment
+    const filteredContext = context ? removeSensitiveData(context) as Record<string, unknown> : undefined;
+    const sanitizedError = error ? this.sanitizeError(error) : undefined;
+    
+    const entry = this.formatMessage(level, message, filteredContext, sanitizedError as Error);
     
     // Add to in-memory logs
     this.logs.push(entry);
-    if (this.logs.length > this.maxLogs) {
+    if (this.logs.length > LOG_CONFIG.maxMemoryLogs) {
       this.logs.shift();
     }
     
@@ -45,16 +66,16 @@ class Logger {
     const consoleMessage = `[${entry.timestamp}] ${level.toUpperCase()}: ${message}`;
     switch (level) {
       case 'debug':
-        console.debug(consoleMessage, context || '', error || '');
+        console.debug(consoleMessage, filteredContext || '', sanitizedError || '');
         break;
       case 'info':
-        console.info(consoleMessage, context || '', error || '');
+        console.info(consoleMessage, filteredContext || '', sanitizedError || '');
         break;
       case 'warn':
-        console.warn(consoleMessage, context || '', error || '');
+        console.warn(consoleMessage, filteredContext || '', sanitizedError || '');
         break;
       case 'error':
-        console.error(consoleMessage, context || '', error || '');
+        console.error(consoleMessage, filteredContext || '', sanitizedError || '');
         break;
     }
   }

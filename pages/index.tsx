@@ -7,7 +7,7 @@ import FeedbackDisplay from '../components/features/FeedbackDisplay';
 import EmailCountChart from '../components/features/EmailCountChart';
 import { API_ENDPOINTS } from '../constants/api';
 import { useAuth } from '../hooks/useAuth';
-import type { VibecheckResults, GmailMessage, EmailSentiment } from '../types/api';
+import type { VibeloopResults, GmailMessage, EmailSentiment } from '../types/api';
 import { logger, format } from '../utils/logging';
 
 const LOADING_MESSAGES = [
@@ -19,7 +19,7 @@ const LOADING_MESSAGES = [
 
 type LoadingMessage = typeof LOADING_MESSAGES[number];
 
-const EMPTY_RESULTS: VibecheckResults = {
+const EMPTY_RESULTS: VibeloopResults = {
   overallSummary: "No feedback available to analyze.",
   topPraise: "No praise points found.",
   topPain: "No pain points found.",
@@ -39,12 +39,12 @@ const EMPTY_RESULTS: VibecheckResults = {
 export default function Home() {
   const { isAuthenticated, user, signInWithGoogle, signOutUser } = useAuth();
   const [gmailLoading, setGmailLoading] = useState(false);
-  const [gmailResults, setGmailResults] = useState<VibecheckResults | null>(null);
+  const [gmailResults, setGmailResults] = useState<VibeloopResults | null>(null);
   const [messages, setMessages] = useState<GmailMessage[]>([]);
   const [sentiments, setSentiments] = useState<EmailSentiment[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState<LoadingMessage>(LOADING_MESSAGES[0]);
-  const [previousResults, setPreviousResults] = useState<VibecheckResults | null>(null);
+  const [previousResults, setPreviousResults] = useState<VibeloopResults | null>(null);
   const [previousMessages, setPreviousMessages] = useState<GmailMessage[]>([]);
   const [previousSentiments, setPreviousSentiments] = useState<EmailSentiment[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -97,33 +97,27 @@ export default function Home() {
         setMessages(data.messages);
         setSentiments(data.sentiments);
 
-        // Log analysis completion with metrics
-        logger.info('Analysis completed successfully', {
-          message: format.successBlock('Analysis completed successfully', {
-            type: 'gmail_analysis',
-            metrics: {
-              messages: data.messages.length,
-              sentiments: data.sentiments.length,
-              insights: {
-                praise: data.gmailFeedback.praisePoints.length,
-                pain: data.gmailFeedback.painPoints.length,
-                features: data.gmailFeedback.requestedFeatures.length
-              },
-              sentiment_breakdown: data.gmailFeedback.sentimentBreakdown
-            }
-          })
+        // Log only non-sensitive metrics
+        logger.info('Analysis completed', {
+          total_messages: data.messages.length,
+          total_insights: {
+            praise: data.gmailFeedback.praisePoints.length,
+            pain: data.gmailFeedback.painPoints.length,
+            features: data.gmailFeedback.requestedFeatures.length
+          },
+          sentiment_counts: data.gmailFeedback.sentimentBreakdown
         });
       } else {
-        logger.error('Error fetching Gmail data', new Error('API request failed'), { response: data });
-        setError('Failed to fetch Gmail data');
+        logger.error('Analysis failed');
+        setError('Failed to analyze Gmail data');
         // Restore previous results on error
         setGmailResults(previousResults);
         setMessages(previousMessages);
         setSentiments(previousSentiments);
       }
     } catch (error) {
-      logger.error('Error in Gmail API call', error instanceof Error ? error : new Error(String(error)));
-      setError('An error occurred while fetching your Gmail data');
+      logger.error('Analysis failed');
+      setError('An error occurred during analysis');
       // Restore previous results on error
       setGmailResults(previousResults);
       setMessages(previousMessages);

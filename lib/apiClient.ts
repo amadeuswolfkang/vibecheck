@@ -2,40 +2,39 @@
 
 import { logger } from '../utils/logging';
 
-export interface VibecheckResults {
+export interface VibeloopResults {
     overallSummary: string;
     topPraise: string;
     topPain: string;
     topIntensity: string;
     topRequestedFeature: string;
-    praisePoints: { text: string; source?: string; sender?: string; date?: string }[];
-    painPoints: { text: string; source?: string; sender?: string; date?: string }[];
-    requestedFeatures: { text: string; source?: string; sender?: string; date?: string }[];
-  }
-  
-  async function fetchVibecheckData(endpoint: string, body: any): Promise<VibecheckResults | null> {
+    praisePoints: FeedbackPoint[];
+    painPoints: FeedbackPoint[];
+    requestedFeatures: FeedbackPoint[];
+    sentimentBreakdown: SentimentBreakdown;
+}
+
+async function fetchVibeloopData(endpoint: string, body: any): Promise<VibeloopResults | null> {
     try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-  
-      if (!res.ok) {
-        throw new Error(`API request failed: ${res.statusText}`);
-      }
-  
-      const data = await res.json();
-      return data.gmailFeedback || null;
+        const res = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+
+        if (!res.ok) {
+            throw new Error(`API request failed: ${res.status}`);
+        }
+
+        const data = await res.json();
+        return data;
     } catch (error) {
-      logger.error('Error fetching data', error instanceof Error ? error : new Error(String(error)));
-      return null;
+        logger.error('API request failed', error instanceof Error ? error : new Error(String(error)));
+        return null;
     }
-  }
-  
-  export async function fetchGmailFeedback(accessToken: string | null): Promise<VibecheckResults | null> {
-    return fetchVibecheckData('/api/gmail', { gmailAccessToken: accessToken });
-  }
+}
+
+export async function fetchGmailFeedback(accessToken: string | null): Promise<VibeloopResults | null> {
+    return fetchVibeloopData('/api/gmail', { gmailAccessToken: accessToken });
+}
   

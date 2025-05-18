@@ -12,127 +12,229 @@ interface DailyEmailCount {
   neutral: number;
 }
 
+// Validate access token format
+function isValidAccessToken(token: string): boolean {
+  // Basic validation - tokens should be non-empty strings
+  // and match typical OAuth2 token format
+  return (
+    typeof token === 'string' &&
+    token.length > 0 &&
+    /^[a-zA-Z0-9._-]+$/.test(token)
+  );
+}
+
 // Function to get authenticated Gmail service
 async function getGmailService(accessToken: string) {
-  const auth = new google.auth.OAuth2();
-  auth.setCredentials({ access_token: accessToken });
-  return google.gmail({ version: 'v1', auth });
+  if (!isValidAccessToken(accessToken)) {
+    throw new Error('Invalid access token format');
+  }
+
+  try {
+    const auth = new google.auth.OAuth2();
+    auth.setCredentials({ access_token: accessToken });
+    return google.gmail({ version: 'v1', auth });
+  } catch (error) {
+    logger.error('Failed to initialize Gmail service');
+    throw new Error('Gmail service initialization failed');
+  }
+}
+
+// Add rate limiting
+const rateLimiter = {
+  tokens: 100,
+  lastRefill: Date.now(),
+  refillRate: 100, // tokens per second
+  refillInterval: 1000, // 1 second
+
+  async getToken(): Promise<void> {
+    const now = Date.now();
+    const timePassed = now - this.lastRefill;
+    
+    // Refill tokens based on time passed
+    if (timePassed >= this.refillInterval) {
+      this.tokens = Math.min(100, this.tokens + Math.floor(timePassed / 1000) * this.refillRate);
+      this.lastRefill = now;
+    }
+
+    if (this.tokens <= 0) {
+      await new Promise(resolve => setTimeout(resolve, this.refillInterval));
+      return this.getToken();
+    }
+
+    this.tokens--;
+  }
+};
+
+// Add retry mechanism
+async function retryOperation<T>(
+  operation: () => Promise<T>,
+  retries = 3,
+  delay = 1000
+): Promise<T> {
+  try {
+    await rateLimiter.getToken();
+    return await operation();
+  } catch (error) {
+    if (retries > 0) {
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return retryOperation(operation, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
+// Sanitize email content to prevent XSS and protect sensitive data
+function sanitizeEmailContent(content: string): string {
+  if (!content) return '';
+  
+  return content
+    // Remove potential HTML/script tags
+    .replace(/<[^>]*>/g, '')
+    // Mask email addresses
+    .replace(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g, '[EMAIL]')
+    // Mask phone numbers
+    .replace(/(\+\d{1,2}\s?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g, '[PHONE]')
+    // Mask URLs
+    .replace(/(?:https?|ftp):\/\/[\n\S]+/g, '[LINK]')
+    // Remove special characters that could be used for injection
+    .replace(/[<>\\$]/g, '')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 export async function fetchEmailCountLast30Days(accessToken: string): Promise<DailyEmailCount[]> {
-  const gmail = await getGmailService(accessToken);
-  
-  // Calculate date range
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  const after = Math.floor(thirtyDaysAgo.getTime() / 1000);
+  try {
+    const gmail = await getGmailService(accessToken);
+    
+    // Calculate date range
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const after = Math.floor(thirtyDaysAgo.getTime() / 1000);
 
-  // Fetch all messages in the last 30 days
-  const listRes: GaxiosResponse<gmail_v1.Schema$ListMessagesResponse> = await gmail.users.messages.list({
-    userId: 'me',
-    q: `after:${after}`,
-    maxResults: 500,
-  });
+    // Fetch all messages in the last 30 days
+    const listRes: GaxiosResponse<gmail_v1.Schema$ListMessagesResponse> = await gmail.users.messages.list({
+      userId: 'me',
+      q: `after:${after}`,
+      maxResults: 500,
+    });
 
-  const messages = listRes.data.messages || [];
-  logger.info('Gmail API - Messages fetched', { count: messages.length });
+    const messages = listRes.data.messages || [];
+    logger.info('Gmail API - Messages fetched', { count: messages.length });
 
-  // Create a map to store counts per day
-  const countsByDay = new Map<string, { positive: number; negative: number; mixed: number; neutral: number }>();
-  
-  // Initialize all days in the last 30 days with 0
-  for (let i = 0; i < 30; i++) {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-    const dateStr = date.toISOString().split('T')[0];
-    countsByDay.set(dateStr, { positive: 0, negative: 0, mixed: 0, neutral: 0 });
-  }
-
-  // Get the OpenAI analyzed results
-  const analyzedMessages = await fetchGmailMessages(accessToken);
-  
-  // Process each message and update counts based on OpenAI sentiment analysis
-  for (const message of analyzedMessages) {
-    try {
-      const messageDate = new Date(message.date);
-      const dateStr = messageDate.toISOString().split('T')[0];
-      
-      if (!countsByDay.has(dateStr)) continue;
-      
-      const counts = countsByDay.get(dateStr)!;
-      counts.neutral++; // Default to neutral until analysis is done
-      countsByDay.set(dateStr, counts);
-    } catch (err) {
-      logger.error('Failed to process message', err instanceof Error ? err : new Error(String(err)));
-      continue;
+    // Create a map to store counts per day
+    const countsByDay = new Map<string, { positive: number; negative: number; mixed: number; neutral: number }>();
+    
+    // Initialize all days in the last 30 days with 0
+    for (let i = 0; i < 30; i++) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      countsByDay.set(dateStr, { positive: 0, negative: 0, mixed: 0, neutral: 0 });
     }
-  }
 
-  // Convert map to array and sort by date
-  return Array.from(countsByDay.entries())
-    .map(([date, counts]) => ({
-      date,
-      ...counts
-    }))
-    .sort((a, b) => a.date.localeCompare(b.date));
+    // Get the OpenAI analyzed results
+    const analyzedMessages = await fetchGmailMessages(accessToken);
+    
+    // Process each message and update counts based on OpenAI sentiment analysis
+    for (const message of analyzedMessages) {
+      try {
+        const messageDate = new Date(message.date);
+        const dateStr = messageDate.toISOString().split('T')[0];
+        
+        if (!countsByDay.has(dateStr)) continue;
+        
+        const counts = countsByDay.get(dateStr)!;
+        counts.neutral++; // Default to neutral until analysis is done
+        countsByDay.set(dateStr, counts);
+      } catch (err) {
+        logger.error('Failed to process message', err instanceof Error ? err : new Error(String(err)));
+        continue;
+      }
+    }
+
+    // Convert map to array and sort by date
+    return Array.from(countsByDay.entries())
+      .map(([date, counts]) => ({
+        date,
+        ...counts
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  } catch (error) {
+    logger.error('Failed to fetch email counts');
+    throw new Error('Failed to fetch email counts');
+  }
 }
 
 export async function fetchGmailMessages(accessToken: string): Promise<GmailMessage[]> {
-  const gmail = await getGmailService(accessToken);
-  
-  const listRes = await gmail.users.messages.list({
-    userId: 'me',
-    maxResults: 500,
-  });
+  try {
+    const gmail = await getGmailService(accessToken);
+    
+    const listRes = await gmail.users.messages.list({
+      userId: 'me',
+      maxResults: 500,
+    });
 
-  const messages: GmailMessage[] = [];
-  const messageIds = listRes.data.messages || [];
+    const messages: GmailMessage[] = [];
+    const messageIds = listRes.data.messages || [];
 
-  for (const { id: messageId } of messageIds) {
-    if (!messageId) continue;
+    for (const { id } of messageIds) {
+      if (!id) continue;
 
-    try {
-      const res = await gmail.users.messages.get({
-        userId: 'me',
-        id: messageId,
-      });
+      try {
+        const res = await gmail.users.messages.get({
+          userId: 'me',
+          id: id,
+        });
 
-      const headers = res.data.payload?.headers;
-      if (!headers) {
-        logger.error('Message has no headers', null, { messageId });
-        continue;
-      }
+        const headers = res.data.payload?.headers || [];
+        if (!headers) {
+          logger.error('Message has no headers', new Error('No headers found'), { id });
+          continue;
+        }
 
-      const sender = headers.find(h => h.name === 'From')?.value || '';
-      const subject = headers.find(h => h.name === 'Subject')?.value || '';
-      const date = headers.find(h => h.name === 'Date')?.value || '';
+        const sender = headers.find(h => h.name === 'From')?.value || '';
+        const subject = headers.find(h => h.name === 'Subject')?.value || '';
+        const date = headers.find(h => h.name === 'Date')?.value || '';
+        const messageId = headers.find(h => h.name === 'Message-ID')?.value || '';
 
-      let body = '';
-      const parts = res.data.payload?.parts || [];
-      const bodyData = res.data.payload?.body?.data || '';
+        let body = '';
+        const parts = res.data.payload?.parts || [];
+        const bodyData = res.data.payload?.body?.data || '';
 
-      if (bodyData) {
-        body = Buffer.from(bodyData, 'base64').toString();
-      } else {
-        for (const part of parts) {
-          if (part.mimeType === 'text/plain' && part.body?.data) {
-            body = Buffer.from(part.body.data, 'base64').toString();
-            break;
+        if (bodyData) {
+          body = sanitizeEmailContent(Buffer.from(bodyData, 'base64').toString());
+        } else {
+          for (const part of parts) {
+            if (part.mimeType === 'text/plain' && part.body?.data) {
+              body = sanitizeEmailContent(Buffer.from(part.body.data, 'base64').toString());
+              break;
+            }
           }
         }
-      }
 
-      if (!body) {
-        logger.error('No body found for message', null, { messageId });
+        if (!body) {
+          logger.error('No body found for message', new Error('No body found'), { id });
+          continue;
+        }
+
+        messages.push({ 
+          id: id,  // Gmail's internal ID
+          messageId: messageId,  // RFC 2822 Message-ID header
+          sender, 
+          subject, 
+          body, 
+          date 
+        });
+      } catch (err) {
+        logger.error('Failed to fetch message', err instanceof Error ? err : new Error(String(err)), { id });
         continue;
       }
-
-      messages.push({ id: messageId, sender, subject, body, date });
-    } catch (err) {
-      logger.error('Failed to fetch message', err instanceof Error ? err : new Error(String(err)), { messageId });
-      continue;
     }
-  }
 
-  return messages;
+    return messages;
+  } catch (error) {
+    logger.error('Failed to fetch Gmail messages');
+    throw new Error('Failed to fetch Gmail messages');
+  }
 }

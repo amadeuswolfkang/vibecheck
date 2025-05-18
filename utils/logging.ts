@@ -1,3 +1,5 @@
+import { ENV, LOG_CONFIG, removeSensitiveData } from '../lib/config';
+
 // Color Palette - Easy to modify these base colors
 const PALETTE = {
   // Base colors
@@ -87,11 +89,8 @@ const format = {
 // Simple logger without memory storage
 class Logger {
   private static instance: Logger;
-  private isDevelopment: boolean;
 
-  private constructor() {
-    this.isDevelopment = process.env.NODE_ENV === 'development';
-  }
+  private constructor() {}
 
   public static getInstance(): Logger {
     if (!Logger.instance) {
@@ -101,18 +100,25 @@ class Logger {
   }
 
   private log(level: keyof typeof COLORS, message: string, meta?: unknown): void {
-    if (!this.isDevelopment) return;
+    // Skip debug logs in production
+    if (ENV.isProd && level === 'DEBUG') return;
+    
+    // Skip all logs in test unless explicitly enabled
+    if (ENV.isTest && !LOG_CONFIG.enableTestLogs) return;
 
     const timestamp = format.timestamp();
     const levelStr = format.colorize(format.bold(level), COLORS[level]);
     let output = `${timestamp} ${levelStr}: ${message}`;
 
     if (meta) {
+      // Always remove sensitive data, regardless of environment
+      const filteredMeta = removeSensitiveData(meta);
+
       // Check if meta contains a pre-formatted message
-      if (typeof meta === 'object' && meta !== null && 'message' in meta) {
-        output = `${timestamp} ${levelStr}: ${(meta as { message: string }).message}`;
-      } else {
-        output += '\n' + format.dim(JSON.stringify(meta, null, 2));
+      if (typeof filteredMeta === 'object' && filteredMeta !== null && 'message' in filteredMeta) {
+        output = `${timestamp} ${levelStr}: ${(filteredMeta as { message: string }).message}`;
+      } else if (filteredMeta) {
+        output += '\n' + format.dim(JSON.stringify(filteredMeta, null, 2));
       }
     }
 
@@ -136,7 +142,7 @@ class Logger {
       error: {
         message: error.message,
         name: error.name,
-        stack: error.stack
+        stack: ENV.isProd ? undefined : error.stack
       },
       ...(meta || {})
     } : meta;
@@ -184,17 +190,19 @@ class TokenTracker {
     modelStats.calls += 1;
     this.modelUsage.set(model, modelStats);
 
-    // Log the usage with timestamp and formatted output
-    const timestamp = format.timestamp();
-    const header = format.colorize(format.bold('TOKEN USAGE'), COLORS.INFO);
-    
-    console.log([
-      `${timestamp} ${header}`,
-      `${format.label('Model')}${format.model(model)}`,
-      `${format.label('Tokens')}${format.number(usage.total_tokens)} (${format.number(usage.prompt_tokens)} prompt, ${format.number(usage.completion_tokens)} completion)`,
-      `${format.label('Cost')}${format.money(totalCost)} (${format.money(this.totalCost)} total)`,
-      `${format.label('Model Stats')}${format.number(modelStats.calls)} calls, ${format.number(modelStats.totalTokens)} tokens, ${format.money(modelStats.cost)}`
-    ].join('\n'));
+    // Only log detailed usage in development
+    if (ENV.isDev) {
+      const timestamp = format.timestamp();
+      const header = format.colorize(format.bold('TOKEN USAGE'), COLORS.INFO);
+      
+      console.log([
+        `${timestamp} ${header}`,
+        `${format.label('Model')}${format.model(model)}`,
+        `${format.label('Tokens')}${format.number(usage.total_tokens)} (${format.number(usage.prompt_tokens)} prompt, ${format.number(usage.completion_tokens)} completion)`,
+        `${format.label('Cost')}${format.money(totalCost)}`,
+        `${format.label('Model Stats')}${format.number(modelStats.calls)} calls, ${format.number(modelStats.totalTokens)} tokens, ${format.money(modelStats.cost)}`
+      ].join('\n'));
+    }
   }
 
   public getTotalCost(): number {

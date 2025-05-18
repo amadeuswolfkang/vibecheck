@@ -16,7 +16,7 @@ export default function FeedbackSection({
   return (
     <div className={className}>
       <Badge variant={variant} style="pill">{label}</Badge>
-      <p className="text-sm mt-2 text-gray-700 dark:text-gray-300">{text}</p>
+      <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed mt-2">{text}</p>
     </div>
   );
 } 

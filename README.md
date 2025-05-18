@@ -1,6 +1,49 @@
-# Vibecheck
+# Vibeloop
 
-Vibecheck is an advanced feedback analysis system that processes and analyzes email feedback using AI to provide actionable insights and sentiment analysis.
+Vibeloop is an advanced feedback analysis system that processes and analyzes email feedback using AI to provide actionable insights and sentiment analysis.
+
+## Features
+
+- 🔍 **Smart Email Analysis**: Automatically processes and categorizes email feedback
+- 📊 **Sentiment Analysis**: Identifies positive, negative, and neutral sentiments
+- 📈 **Trend Detection**: Spots patterns and emerging issues
+- 🎯 **Actionable Insights**: Converts raw feedback into clear action items
+- 🔒 **Secure Processing**: Handles data with enterprise-grade security
+- 📱 **Responsive Design**: Works seamlessly across all devices
+
+## Getting Started
+
+1. Clone the repository
+2. Install dependencies: `npm install`
+3. Set up environment variables (see `.env.example`)
+4. Run development server: `npm run dev`
+
+## Security
+
+- OAuth2 authentication
+- Rate limiting
+- Input validation
+- Data sanitization
+- Secure headers
+- CORS protection
+
+## How It Works
+
+Vibeloop helps businesses understand customer feedback by:
+
+1. Connecting to email accounts securely
+2. Processing feedback using AI
+3. Generating actionable insights
+4. Visualizing trends and patterns
+5. Identifying priority areas
+
+## Contributing
+
+We welcome contributions! Please see our contributing guidelines for more details.
+
+## License
+
+MIT License - see LICENSE for details
 
 ## 🚀 Quick Start
 

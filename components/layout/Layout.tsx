@@ -2,6 +2,7 @@ import { ReactNode } from 'react';
 import Link from 'next/link';
 import DarkModeToggle from '../common/DarkModeToggle';
 import { page, layout, text, button, background, animation, cn } from '../../styles';
+import Image from 'next/image';
 
 interface LayoutProps {
   children: ReactNode;
@@ -27,7 +28,7 @@ export default function Layout({ children, isAuthenticated, userEmail, onSignIn,
                 'relative inline-block hover:opacity-80',
                 animation.transition.base
               )}>
-                Vibecheck
+                Vibeloop
               </h1>
             </Link>
             <div className={cn(layout.flex.center, 'gap-2 sm:gap-3 flex-shrink-0')}>
@@ -77,7 +78,7 @@ export default function Layout({ children, isAuthenticated, userEmail, onSignIn,
         <footer className={page.footer}>
           <div className={cn(layout.container, 'text-center')}>
             <p className={cn(text.sizes.sm, text.colors.default, 'md:text-base')}>
-              © {currentYear} Vibecheck. Made with ❤️ for better feedback.
+              © {currentYear} Vibeloop. Made with ❤️ for better feedback.
             </p>
           </div>
         </footer>

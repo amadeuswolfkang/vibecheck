@@ -2,7 +2,7 @@ import FeedbackSection from './FeedbackSection';
 import Card from '../common/Card';
 import Badge from '../common/Badge';
 import SenderBadge from '../common/SenderBadge';
-import type { FeedbackPoint, VibecheckResults } from '../../types/api';
+import type { FeedbackPoint, VibeloopResults } from '../../types/api';
 import { formatDate } from '../../utils/date';
 import { useState, useEffect } from 'react';
 
@@ -13,22 +13,27 @@ const FEEDBACK_SECTIONS = [
   { label: 'Most Requested', key: 'topRequestedFeature', variant: 'info' },
 ] as const;
 
-const BORDER_COLORS = {
-  success: 'border-emerald-200',
-  error: 'border-rose-200',
-  warning: 'border-amber-200',
-  info: 'border-blue-200',
-} as const;
-
-const BULLET_COLORS = {
-  success: 'bg-emerald-300',
-  error: 'bg-rose-300',
-  warning: 'bg-amber-300',
-  info: 'bg-blue-300',
+const COLORS = {
+  success: {
+    border: 'border-emerald-200',
+    bullet: 'bg-emerald-300',
+  },
+  error: {
+    border: 'border-rose-200',
+    bullet: 'bg-rose-300',
+  },
+  warning: {
+    border: 'border-amber-200',
+    bullet: 'bg-amber-300',
+  },
+  info: {
+    border: 'border-blue-200',
+    bullet: 'bg-blue-300',
+  },
 } as const;
 
 interface FeedbackDisplayProps {
-  data: VibecheckResults;
+  data: VibeloopResults;
   isAnalyzing?: boolean;
 }
 
@@ -45,14 +50,16 @@ export default function FeedbackDisplay({ data, isAnalyzing = false }: FeedbackD
 
   if (!data) return <p className="text-gray-500 dark:text-gray-400 text-base">No feedback available.</p>;
 
-  const renderPoint = (point: FeedbackPoint, variant: keyof typeof BORDER_COLORS) => (
-    <div key={point.text} className="mb-8 last:mb-0 w-full">
+  const renderPoint = (point: FeedbackPoint, variant: keyof typeof COLORS) => (
+    <div className="mb-8 last:mb-0 w-full">
       <div className="flex items-start gap-3">
-        <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${BULLET_COLORS[variant]}`} />
-        <div className="flex-1">
-          <p className="text-gray-700 dark:text-gray-200 mb-3 text-sm leading-relaxed">{point.text}</p>
+        <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${COLORS[variant].bullet}`} />
+        <div className="flex-1 min-w-0">
+          <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed whitespace-normal break-words mb-4">
+            {point.text}
+          </p>
           {point.source && (
-            <blockquote className={`border-l-2 ${BORDER_COLORS[variant]} pl-3 py-2 text-gray-500 dark:text-gray-400 text-sm italic mb-3 leading-relaxed`}>
+            <blockquote className={`border-l-2 ${COLORS[variant].border} pl-3 py-2 text-gray-500 dark:text-gray-400 text-sm leading-relaxed italic mb-3 whitespace-normal break-words`}>
               {point.source.length <= 280 ? point.source : (
                 <>
                   {point.source.slice(0, 280)}
@@ -72,13 +79,23 @@ export default function FeedbackDisplay({ data, isAnalyzing = false }: FeedbackD
     </div>
   );
 
-  const renderFeedbackSection = (title: string, variant: keyof typeof BORDER_COLORS, points: FeedbackPoint[]) => (
+  const renderFeedbackSection = (title: string, variant: keyof typeof COLORS, points: FeedbackPoint[]) => (
     <div className="w-full">
       <div className="mb-6">
         <Badge variant={variant} style="header">{title}</Badge>
       </div>
       <div className="space-y-8">
-        {(points || []).map(point => renderPoint(point, variant))}
+        {points?.map(point => renderPoint(point, variant))}
+      </div>
+    </div>
+  );
+
+  const renderCommentColumn = (title: string, variant: keyof typeof COLORS, points: FeedbackPoint[], isLast = false) => (
+    <div className={`relative ${!isLast ? 'md:border-r border-gray-100 dark:border-gray-700' : ''}`}>
+      <div className="px-6">
+        <div className="min-w-0">
+          {renderFeedbackSection(title, variant, points)}
+        </div>
       </div>
     </div>
   );
@@ -93,15 +110,15 @@ export default function FeedbackDisplay({ data, isAnalyzing = false }: FeedbackD
         Inbox Feedback Analysis
       </h2>
       
-      <div className="grid grid-cols-1 lg:grid-cols-[3fr_7fr] gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-[2.5fr_7.5fr] gap-8">
         <div className="space-y-8">
           <Card delay={0}>
-            <h3 className="text-lg font-semibold mb-4 text-gray-700 dark:text-gray-200">📄 Summary</h3>
+            <h3 className="text-lg font-semibold mb-4 text-gray-700 dark:text-gray-200">Summary</h3>
             <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">{data.overallSummary}</p>
           </Card>
 
           <Card delay={150}>
-            <h3 className="text-lg font-semibold mb-6 text-gray-700 dark:text-gray-200">🎯 Key Feedback Points</h3>
+            <h3 className="text-lg font-semibold mb-6 text-gray-700 dark:text-gray-200">Key Feedback Points</h3>
             <div className="space-y-6">
               {FEEDBACK_SECTIONS.map(({ label, key, variant }) => (
                 <FeedbackSection
@@ -115,28 +132,16 @@ export default function FeedbackDisplay({ data, isAnalyzing = false }: FeedbackD
           </Card>
         </div>
 
-        <Card delay={300}>
-          <h3 className="text-lg font-semibold mb-8 text-gray-700 dark:text-gray-200">
-            💬 Comments
-          </h3>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 relative">
-            <div className="relative flex-1 min-w-0">
-              <div className="px-6">
-                {renderFeedbackSection('Praise Points', 'success', data.praisePoints)}
-              </div>
-              <div className="absolute right-0 top-0 h-full w-px bg-gray-100 dark:bg-gray-700 hidden md:block" />
-            </div>
-            <div className="relative flex-1 min-w-0">
-              <div className="px-6">
-                {renderFeedbackSection('Pain Points', 'error', data.painPoints)}
-              </div>
-              <div className="absolute right-0 top-0 h-full w-px bg-gray-100 dark:bg-gray-700 hidden md:block" />
-            </div>
-            <div className="relative flex-1 min-w-0">
-              <div className="px-6">
-                {renderFeedbackSection('Feature Requests', 'info', data.requestedFeatures)}
-              </div>
+        <Card delay={300} padding="none">
+          <div className="p-6">
+            <h3 className="text-lg font-semibold mb-8 text-gray-700 dark:text-gray-200">
+              Comments
+            </h3>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-x-0 relative">
+              {renderCommentColumn('Praise Points', 'success', data.praisePoints)}
+              {renderCommentColumn('Pain Points', 'error', data.painPoints)}
+              {renderCommentColumn('Feature Requests', 'info', data.requestedFeatures, true)}
             </div>
           </div>
         </Card>

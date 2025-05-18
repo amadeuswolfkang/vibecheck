@@ -1,16 +1,9 @@
-import NextAuth from 'next-auth';
+import NextAuth, { Account } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import type { JWT } from 'next-auth/jwt';
 import type { Session } from 'next-auth';
 import { logger } from '../../../utils/logging';
-
-// Log environment configuration on startup
-logger.debug('Auth configuration loaded', {
-  hasGoogleId: !!process.env.GOOGLE_ID,
-  hasGoogleSecret: !!process.env.GOOGLE_SECRET,
-  hasNextAuthUrl: !!process.env.NEXTAUTH_URL,
-  hasGoogleScope: !!process.env.GOOGLE_SCOPE,
-});
+import { env } from '../../../lib/env';
 
 // Extend the Session type to include our custom properties
 interface ExtendedSession extends Session {
@@ -27,18 +20,21 @@ async function refreshAccessToken(token: JWT) {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({
-        client_id: process.env.GOOGLE_ID!,
-        client_secret: process.env.GOOGLE_SECRET!,
+        client_id: env.GOOGLE_ID,
+        client_secret: env.GOOGLE_SECRET,
         refresh_token: token.refreshToken as string,
         grant_type: 'refresh_token',
       }),
     });
 
+    if (!response.ok) {
+      throw new Error(`Token refresh failed: ${response.status}`);
+    }
+
     const refreshedTokens = await response.json();
 
     if (!refreshedTokens.access_token) {
-      logger.error('Failed to refresh access token', new Error('No access token in response'), { refreshedTokens });
-      throw refreshedTokens;
+      throw new Error('No access token in response');
     }
 
     return {
@@ -48,7 +44,8 @@ async function refreshAccessToken(token: JWT) {
       refreshToken: refreshedTokens.refresh_token ?? token.refreshToken,
     };
   } catch (error) {
-    logger.error('Error refreshing access token', error instanceof Error ? error : new Error(String(error)));
+    // Don't log the actual error as it might contain sensitive data
+    logger.error('Token refresh error occurred');
     
     return {
       ...token,
@@ -57,14 +54,14 @@ async function refreshAccessToken(token: JWT) {
   }
 }
 
-export default NextAuth({
+const authOptions = {
   providers: [
     GoogleProvider({
-      clientId: process.env.GOOGLE_ID!,
-      clientSecret: process.env.GOOGLE_SECRET!,
+      clientId: env.GOOGLE_ID,
+      clientSecret: env.GOOGLE_SECRET,
       authorization: {
         params: {
-          scope: process.env.GOOGLE_SCOPE,
+          scope: env.GOOGLE_SCOPE,
           access_type: 'offline',
           prompt: 'consent',
           response_type: 'code',
@@ -72,34 +69,52 @@ export default NextAuth({
       },
     }),
   ],
-  secret: process.env.NEXTAUTH_SECRET,
-  debug: process.env.NODE_ENV === 'development',
+  secret: env.NEXTAUTH_SECRET,
+  debug: env.NODE_ENV === 'development',
   callbacks: {
-    async jwt({ token, account }) {
-      // Initial sign in
-      if (account) {
+    async jwt({ token, account }: { token: JWT; account: Account | null }) {
+      try {
+        // Initial sign in
+        if (account) {
+          return {
+            ...token,
+            accessToken: account.access_token,
+            refreshToken: account.refresh_token,
+            accessTokenExpires: account.expires_at ? account.expires_at * 1000 : 0,
+          };
+        }
+
+        // Return previous token if the access token has not expired yet
+        if (Date.now() < (token.accessTokenExpires as number)) {
+          return token;
+        }
+
+        // Access token has expired, try to update it
+        return refreshAccessToken(token);
+      } catch (error) {
+        logger.error('JWT callback error');
         return {
           ...token,
-          accessToken: account.access_token,
-          refreshToken: account.refresh_token,
-          accessTokenExpires: account.expires_at ? account.expires_at * 1000 : 0,
+          error: 'TokenError',
         };
       }
-
-      // Return previous token if the access token has not expired yet
-      if (Date.now() < (token.accessTokenExpires as number)) {
-        return token;
-      }
-
-      // Access token has expired, try to update it
-      return refreshAccessToken(token);
     },
     async session({ session, token }: { session: ExtendedSession; token: JWT }) {
-      if (token) {
-        session.accessToken = token.accessToken as string;
-        session.error = token.error as string | undefined;
+      try {
+        if (token) {
+          session.accessToken = token.accessToken as string;
+          session.error = token.error as string | undefined;
+        }
+        return session;
+      } catch (error) {
+        logger.error('Session callback error');
+        return {
+          ...session,
+          error: 'SessionError',
+        };
       }
-      return session;
     },
   },
-});
+};
+
+export default NextAuth(authOptions);

@@ -13,6 +13,9 @@ package-lock.json
 
 # testing
 /coverage
+.nyc_output
+/cypress/videos/
+/cypress/screenshots/
 
 # next.js
 /.next/
@@ -41,25 +44,16 @@ yarn-error.log*
 .pnpm-debug.log*
 *.log
 
-# env files and secrets
+# local env files
 .env
 .env.*
 .env.local
 .env.development
-.env.test
-.env.production
 .env.development.local
+.env.test
 .env.test.local
+.env.production
 .env.production.local
-*.key
-*.secret
-*secret*
-*api_key*
-*apikey*
-*credentials*
-credentials.json
-google-credentials.json
-service-account.json
 
 # vercel
 .vercel
@@ -81,20 +75,31 @@ next-env.d.ts
 .temp/
 .history/
 
-# Local SSL certificates
-*.crt
+# Security & Secrets
 *.key
 *.pem
+*.cert
+*.crt
+*.p12
+*.pfx
+google-credentials.json
+**/credentials/
+**/secrets/
+**/*_key.*
+**/*_secret.*
 
-# Backup files
-*.bak
-*.backup
-*~
-
-# IDE specific files
+# IDE & Editor
 .idea/
 .vscode/
-*.sublime-workspace
-*.sublime-project
-.project
-.settings/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

@@ -72,7 +72,7 @@ export const text = {
 
 // Layout patterns
 export const layout = {
-  container: 'max-w-7xl mx-auto px-4 sm:px-6 md:px-8',
+  container: 'max-w-[88rem] mx-auto px-4 sm:px-6 md:px-8',
   section: 'py-12 sm:py-16 md:py-20',
   card: 'bg-white dark:bg-slate-800 rounded-xl shadow-sm',
   divider: 'border-t border-slate-200/20 dark:border-slate-700/20',
@@ -133,6 +133,7 @@ export const badge = {
     sm: 'text-xs px-2 py-0.5',
     base: 'text-sm px-3 py-1',
     lg: 'text-base px-4 py-2',
+    header: 'text-base px-6 py-2.5 min-w-[180px]',
   },
   shapes: {
     rounded: 'rounded-md',
