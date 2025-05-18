@@ -4,7 +4,7 @@ import { fetchGmailMessages } from '../../lib/gmail';
 import { getEmailEmbeddings, classifyEmailSentiments, generateDetailedAnalysis } from '../../lib/openai';
 import { SYSTEM_PROMPTS, FEEDBACK_RESPONSE_FORMAT } from '../../constants/prompts';
 import { parseOpenAIResponse } from '../../utils/openai';
-import type { VibecheckResults, Sentiment } from '../../types/api';
+import type { VibeloopResults, Sentiment } from '../../types/api';
 import { logger, format } from '../../utils/logging';
 import { withRateLimit } from '../../lib/rate-limit';
 
@@ -17,7 +17,7 @@ const requestSchema = z.object({
 
 type RequestBody = z.infer<typeof requestSchema>;
 
-const EMPTY_RESULTS: VibecheckResults = {
+const EMPTY_RESULTS: VibeloopResults = {
   overallSummary: "No feedback available to analyze.",
   topPraise: "No praise points found.",
   topPain: "No pain points found.",

@@ -2,7 +2,7 @@ import FeedbackSection from './FeedbackSection';
 import Card from '../common/Card';
 import Badge from '../common/Badge';
 import SenderBadge from '../common/SenderBadge';
-import type { FeedbackPoint, VibeloopResults } from '../../types/api';
+import type { MessageInsight, VibeloopResults } from '../../types/api';
 import { formatDate } from '../../utils/date';
 import { useState, useEffect } from 'react';
 
@@ -50,19 +50,19 @@ export default function FeedbackDisplay({ data, isAnalyzing = false }: FeedbackD
 
   if (!data) return <p className="text-gray-500 dark:text-gray-400 text-base">No feedback available.</p>;
 
-  const renderPoint = (point: FeedbackPoint, variant: keyof typeof COLORS) => (
+  const renderPoint = (point: MessageInsight, variant: keyof typeof COLORS) => (
     <div className="mb-8 last:mb-0 w-full">
       <div className="flex items-start gap-3">
         <div className={`w-2 h-2 rounded-full mt-2 flex-shrink-0 ${COLORS[variant].bullet}`} />
         <div className="flex-1 min-w-0">
           <p className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed whitespace-normal break-words mb-4">
-            {point.text}
+            {point.insight}
           </p>
-          {point.source && (
+          {point.quote && (
             <blockquote className={`border-l-2 ${COLORS[variant].border} pl-3 py-2 text-gray-500 dark:text-gray-400 text-sm leading-relaxed italic mb-3 whitespace-normal break-words`}>
-              {point.source.length <= 280 ? point.source : (
+              {point.quote.length <= 280 ? point.quote : (
                 <>
-                  {point.source.slice(0, 280)}
+                  {point.quote.slice(0, 280)}
                   <span className="text-slate-400 dark:text-slate-500 text-sm"> •••</span>
                 </>
               )}
@@ -72,8 +72,8 @@ export default function FeedbackDisplay({ data, isAnalyzing = false }: FeedbackD
             {point.sender && (
               <SenderBadge 
                 sender={point.sender} 
-                messageId={point.messageId}
-                id={point.id}
+                messageId={point.rfc822MessageId}
+                id={point.messageId}
               />
             )}
             {point.date && (
@@ -85,7 +85,7 @@ export default function FeedbackDisplay({ data, isAnalyzing = false }: FeedbackD
     </div>
   );
 
-  const renderFeedbackSection = (title: string, variant: keyof typeof COLORS, points: FeedbackPoint[]) => (
+  const renderFeedbackSection = (title: string, variant: keyof typeof COLORS, points: MessageInsight[]) => (
     <div className="w-full">
       <div className="mb-6">
         <Badge variant={variant} style="header">{title}</Badge>
@@ -96,7 +96,7 @@ export default function FeedbackDisplay({ data, isAnalyzing = false }: FeedbackD
     </div>
   );
 
-  const renderCommentColumn = (title: string, variant: keyof typeof COLORS, points: FeedbackPoint[], isLast = false) => (
+  const renderCommentColumn = (title: string, variant: keyof typeof COLORS, points: MessageInsight[], isLast = false) => (
     <div className={`relative ${!isLast ? 'md:border-r border-gray-100 dark:border-gray-700' : ''}`}>
       <div className="px-6">
         <div className="min-w-0">

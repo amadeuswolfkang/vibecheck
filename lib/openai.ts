@@ -5,10 +5,12 @@ import type {
   Sentiment, 
   GmailMessage, 
   VibeloopResults,
-  SentimentBreakdown 
+  SentimentBreakdown,
+  ProcessedMessage,
+  MessageInsight
 } from '../types/api';
 import { logger, tokenTracker } from '../utils/logging';
-import { SYSTEM_PROMPTS, FEEDBACK_RESPONSE_FORMAT } from '../constants/prompts';
+import { SYSTEM_PROMPTS, FEEDBACK_RESPONSE_FORMAT, CHAR_LIMITS } from '../constants/prompts';
 import { env } from '../lib/env';
 
 // OpenAI client configuration
@@ -286,11 +288,6 @@ export async function generateDetailedAnalysis(
   messages: GmailMessage[],
   sentiments: EmailSentiment[]
 ): Promise<VibeloopResults> {
-  // Process messages in chunks to avoid token limits
-  const ANALYSIS_CHUNK_SIZE = 25;
-  const chunks: VibeloopResults[] = [];
-  
-  // Validate input arrays
   if (messages.length === 0 || sentiments.length === 0) {
     logger.warn('Empty input for analysis', {
       messageCount: messages.length,
@@ -299,36 +296,21 @@ export async function generateDetailedAnalysis(
     return DEFAULT_RESULTS;
   }
 
-  if (messages.length !== sentiments.length) {
-    const error = new Error('Mismatched messages and sentiments arrays');
-    Object.assign(error, {
-      messageCount: messages.length,
-      sentimentCount: sentiments.length
-    });
-    logger.error('Mismatched messages and sentiments arrays', error, {
-      messageCount: messages.length,
-      sentimentCount: sentiments.length
-    });
-    throw error;
-  }
+  // Step 1: Create processed messages with their sentiments
+  const processedMessages: ProcessedMessage[] = messages.map((msg, index) => ({
+    message: msg,
+    sentiment: sentiments[index]
+  }));
 
-  for (let i = 0; i < messages.length; i += ANALYSIS_CHUNK_SIZE) {
-    const chunk = messages.slice(i, i + ANALYSIS_CHUNK_SIZE);
-    const chunkSentiments = sentiments.slice(i, i + ANALYSIS_CHUNK_SIZE);
-    
-    // Prepare the input for this chunk
-    const analysisInput = chunk.map((msg, index) => ({
-      content: msg.body,
-      subject: msg.subject,
-      sentiment: chunkSentiments[index],
-      sender: msg.sender,
-      date: msg.date,
-      messageId: msg.messageId,
-      id: msg.id
-    }));
+  // Step 2: Process in smaller chunks for token limits
+  const CHUNK_SIZE = 25;
+  const allInsights: MessageInsight[] = [];
+
+  for (let i = 0; i < processedMessages.length; i += CHUNK_SIZE) {
+    const chunk = processedMessages.slice(i, i + CHUNK_SIZE);
     
     try {
-      // Call GPT-3.5-turbo for detailed analysis of this chunk
+      // Step 3: Let AI analyze each message in the chunk
       const completion = await openai.chat.completions.create({
         model: 'gpt-3.5-turbo',
         response_format: { type: "json_object" },
@@ -339,142 +321,131 @@ export async function generateDetailedAnalysis(
           },
           {
             role: 'user',
-            content: `Analyze these messages and provide insights. Format your response according to this schema: ${FEEDBACK_RESPONSE_FORMAT}\n\nMessages to analyze: ${JSON.stringify(analysisInput)}`,
+            content: SYSTEM_PROMPTS.MESSAGE_ANALYSIS + `\n\nMessages to analyze: ${JSON.stringify(chunk.map((pm, index) => ({
+  index,
+  content: pm.message.body,
+  subject: pm.message.subject,
+  sentiment: pm.sentiment
+})))}`
           },
         ],
       });
 
-      // Log token usage for GPT-3.5
-      if (completion.usage) {
-        tokenTracker.trackUsage('gpt-3.5-turbo', {
-          prompt: 0.0015,
-          completion: 0.002
-        }, {
-          prompt_tokens: completion.usage.prompt_tokens,
-          completion_tokens: completion.usage.completion_tokens,
-          total_tokens: completion.usage.total_tokens
-        });
-      }
-      
       const rawResult = completion.choices[0]?.message?.content;
-      if (!rawResult) {
-        logger.warn('Empty response from OpenAI', { chunkStart: i, chunkSize: chunk.length });
-        continue;
-      }
+      if (!rawResult) continue;
 
-      try {
-        const chunkResult = JSON.parse(rawResult) as VibeloopResults;
-        validateChunkResult(chunkResult);
-        chunks.push(chunkResult);
-      } catch (parseErr) {
-        logger.error(
-          'Failed to parse chunk result',
-          parseErr instanceof Error ? parseErr : new Error(String(parseErr)),
-          { chunkStart: i, chunkSize: chunk.length, rawResult }
-        );
-        continue;
-      }
+      // Step 4: Parse AI response and reconstruct with preserved message data
+      const aiAnalysis = JSON.parse(rawResult);
+      
+      // Step 5: Map AI insights back to original messages
+      const chunkInsights = aiAnalysis.messageInsights
+        .map((insight: any) => {
+          const processedMessage = chunk[insight.messageIndex];
+          if (!processedMessage) {
+            logger.warn('Invalid message index in AI response', { insight });
+            return null;
+          }
+
+          return {
+            messageId: processedMessage.message.id,
+            rfc822MessageId: processedMessage.message.messageId,
+            insight: insight.insight,
+            quote: insight.quote,
+            sender: processedMessage.message.sender,
+            subject: processedMessage.message.subject,
+            date: processedMessage.message.date,
+            sentiment: processedMessage.sentiment,
+            category: insight.category
+          } as MessageInsight;
+        })
+        .filter(Boolean);
+
+      allInsights.push(...chunkInsights);
     } catch (err) {
-      logger.error(
-        'Failed to analyze chunk',
-        err instanceof Error ? err : new Error(String(err)),
-        { chunkStart: i, chunkSize: chunk.length }
-      );
+      logger.error('Failed to analyze chunk', err instanceof Error ? err : new Error(String(err)));
       continue;
     }
   }
-  
-  return mergeAnalysisChunks(chunks);
+
+  // Step 6: Generate summaries using OpenAI
+  try {
+    const summaryCompletion = await openai.chat.completions.create({
+      model: 'gpt-3.5-turbo',
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: 'system',
+          content: SYSTEM_PROMPTS.GMAIL_FEEDBACK
+        },
+        {
+          role: 'user',
+          content: SYSTEM_PROMPTS.SUMMARY_GENERATION + `\n\nInsights to analyze: ${JSON.stringify({
+  insights: allInsights,
+  sentimentBreakdown: calculateSentimentBreakdown(processedMessages),
+  messageCount: processedMessages.length
+})}`
+        }
+      ]
+    });
+
+    const summaryResult = JSON.parse(summaryCompletion.choices[0]?.message?.content || '{}');
+
+    // Enforce character limits on the results
+    const results: VibeloopResults = {
+      overallSummary: (summaryResult.overallSummary || summarizeFallback(allInsights)).slice(0, CHAR_LIMITS.OVERALL_SUMMARY),
+      topPraise: (summaryResult.topPraise || selectTopInsight(allInsights.filter(i => i.category === 'praise'))).slice(0, CHAR_LIMITS.TOP_POINT),
+      topPain: (summaryResult.topPain || selectTopInsight(allInsights.filter(i => i.category === 'pain'))).slice(0, CHAR_LIMITS.TOP_POINT),
+      topIntensity: (summaryResult.topIntensity || selectMostIntenseInsight(allInsights)).slice(0, CHAR_LIMITS.TOP_POINT),
+      topRequestedFeature: (summaryResult.topRequestedFeature || selectTopInsight(allInsights.filter(i => i.category === 'feature'))).slice(0, CHAR_LIMITS.TOP_POINT),
+      praisePoints: allInsights.filter(i => i.category === 'praise'),
+      painPoints: allInsights.filter(i => i.category === 'pain'),
+      requestedFeatures: allInsights.filter(i => i.category === 'feature'),
+      sentimentBreakdown: calculateSentimentBreakdown(processedMessages)
+    };
+
+    return results;
+  } catch (err) {
+    logger.error('Failed to generate summaries', err instanceof Error ? err : new Error(String(err)));
+    
+    // Fallback to basic summaries if OpenAI call fails
+    return {
+      overallSummary: summarizeFallback(allInsights),
+      topPraise: selectTopInsight(allInsights.filter(i => i.category === 'praise')),
+      topPain: selectTopInsight(allInsights.filter(i => i.category === 'pain')),
+      topIntensity: selectMostIntenseInsight(allInsights),
+      topRequestedFeature: selectTopInsight(allInsights.filter(i => i.category === 'feature')),
+      praisePoints: allInsights.filter(i => i.category === 'praise'),
+      painPoints: allInsights.filter(i => i.category === 'pain'),
+      requestedFeatures: allInsights.filter(i => i.category === 'feature'),
+      sentimentBreakdown: calculateSentimentBreakdown(processedMessages)
+    };
+  }
 }
 
-function validateChunkResult(result: any): asserts result is VibeloopResults {
-  const requiredFields = [
-    'overallSummary',
-    'topPraise',
-    'topPain',
-    'topIntensity',
-    'topRequestedFeature',
-    'praisePoints',
-    'painPoints',
-    'requestedFeatures',
-    'sentimentBreakdown'
-  ];
-
-  for (const field of requiredFields) {
-    if (!(field in result)) {
-      throw new Error(`Missing required field: ${field}`);
-    }
-  }
-
-  // Validate arrays
-  if (!Array.isArray(result.praisePoints)) throw new Error('praisePoints must be an array');
-  if (!Array.isArray(result.painPoints)) throw new Error('painPoints must be an array');
-  if (!Array.isArray(result.requestedFeatures)) throw new Error('requestedFeatures must be an array');
-
-  // Validate sentiment breakdown
-  const breakdown = result.sentimentBreakdown;
-  if (typeof breakdown !== 'object' || breakdown === null) {
-    throw new Error('sentimentBreakdown must be an object');
-  }
-
-  const requiredCounts = ['positive', 'negative', 'mixed', 'neutral'];
-  for (const count of requiredCounts) {
-    if (typeof breakdown[count] !== 'number') {
-      throw new Error(`sentimentBreakdown.${count} must be a number`);
-    }
-  }
-}
-
-function mergeAnalysisChunks(chunks: VibeloopResults[]): VibeloopResults {
-  if (chunks.length === 0) {
-    return DEFAULT_RESULTS;
-  }
-
-  if (chunks.length === 1) return chunks[0];
-  
-  // Merge all chunks into one result
-  return chunks.reduce((merged, chunk) => ({
-    overallSummary: [merged.overallSummary, chunk.overallSummary]
-      .filter(Boolean)
-      .join('\n'),
-    topPraise: selectTopInsight([merged.topPraise, chunk.topPraise]),
-    topPain: selectTopInsight([merged.topPain, chunk.topPain]),
-    topIntensity: selectTopInsight([merged.topIntensity, chunk.topIntensity]),
-    topRequestedFeature: selectTopInsight([merged.topRequestedFeature, chunk.topRequestedFeature]),
-    praisePoints: [...merged.praisePoints, ...chunk.praisePoints],
-    painPoints: [...merged.painPoints, ...chunk.painPoints],
-    requestedFeatures: [...merged.requestedFeatures, ...chunk.requestedFeatures],
-    sentimentBreakdown: mergeSentimentBreakdowns(merged.sentimentBreakdown, chunk.sentimentBreakdown),
-  }));
-}
-
-function selectTopInsight(insights: (string | undefined)[]): string {
-  return insights
-    .filter((insight): insight is string => typeof insight === 'string' && insight.length > 0)
-    .reduce((best, current) => 
-      current.length > best.length ? current : best
-    , '');
-}
-
-function mergeSentimentBreakdowns(
-  a: SentimentBreakdown | null | undefined, 
-  b: SentimentBreakdown | null | undefined
-): SentimentBreakdown {
-  const defaultBreakdown: SentimentBreakdown = { 
-    positive: 0, 
-    negative: 0, 
-    mixed: 0, 
-    neutral: 0 
+function summarizeFallback(insights: MessageInsight[]): string {
+  const categories = {
+    praise: insights.filter(i => i.category === 'praise').length,
+    pain: insights.filter(i => i.category === 'pain').length,
+    feature: insights.filter(i => i.category === 'feature').length
   };
-  
-  if (!a && !b) return defaultBreakdown;
-  if (!a) return b || defaultBreakdown;
-  if (!b) return a;
-  
-  return {
-    positive: (a.positive || 0) + (b.positive || 0),
-    negative: (a.negative || 0) + (b.negative || 0),
-    mixed: (a.mixed || 0) + (b.mixed || 0),
-    neutral: (a.neutral || 0) + (b.neutral || 0),
-  };
+
+  return `Analysis of ${insights.length} feedback points found ${categories.praise} praise points, ${categories.pain} pain points, and ${categories.feature} feature requests.`;
+}
+
+function selectTopInsight(insights: MessageInsight[]): string {
+  if (insights.length === 0) return "";
+  return insights[0].insight;
+}
+
+function selectMostIntenseInsight(insights: MessageInsight[]): string {
+  if (insights.length === 0) return "";
+  // For now, just return the first insight as we don't have intensity scoring yet
+  return insights[0].insight;
+}
+
+function calculateSentimentBreakdown(messages: ProcessedMessage[]): SentimentBreakdown {
+  return messages.reduce((acc, { sentiment }) => {
+    acc[sentiment.sentiment]++;
+    return acc;
+  }, { positive: 0, negative: 0, mixed: 0, neutral: 0 });
 } 

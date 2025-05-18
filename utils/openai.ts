@@ -1,7 +1,7 @@
-import type { VibecheckResults } from '../types/api';
+import type { VibeloopResults } from '../types/api';
 import { logger } from './logging';
 
-const DEFAULT_RESULTS: VibecheckResults = {
+const DEFAULT_RESULTS: VibeloopResults = {
   overallSummary: "No messages to analyze.",
   topPraise: "No praise points found.",
   topPain: "No pain points found.",
@@ -13,7 +13,7 @@ const DEFAULT_RESULTS: VibecheckResults = {
   sentimentBreakdown: { positive: 0, negative: 0, mixed: 0, neutral: 0 }
 };
 
-function isVibecheckResults(value: unknown): value is VibecheckResults {
+function isVibeloopResults(value: unknown): value is VibeloopResults {
   return (
     typeof value === 'object' &&
     value !== null &&
@@ -42,8 +42,8 @@ export function parseOpenAIResponse<T>(raw: string): T | null {
     }
 
     if (parsed && typeof parsed === 'object') {
-      // Type guard for VibecheckResults
-      if (isVibecheckResults(parsed)) {
+      // Type guard for VibeloopResults
+      if (isVibeloopResults(parsed)) {
         return parsed as T;
       }
 
