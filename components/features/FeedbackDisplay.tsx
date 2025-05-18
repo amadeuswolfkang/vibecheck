@@ -69,7 +69,13 @@ export default function FeedbackDisplay({ data, isAnalyzing = false }: FeedbackD
             </blockquote>
           )}
           <div className="flex flex-col gap-2">
-            {point.sender && <SenderBadge sender={point.sender} />}
+            {point.sender && (
+              <SenderBadge 
+                sender={point.sender} 
+                messageId={point.messageId}
+                id={point.id}
+              />
+            )}
             {point.date && (
               <span className="text-xs text-gray-500 dark:text-gray-400 pl-2">{formatDate(point.date)}</span>
             )}

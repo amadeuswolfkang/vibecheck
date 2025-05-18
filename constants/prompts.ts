@@ -34,6 +34,9 @@ ANALYSIS REQUIREMENTS:
    - Enforce all character limits strictly
    - Include exact source quotes for verification
    - Focus on qualitative analysis over numerical scores
+   - ALWAYS preserve both message IDs exactly as provided:
+     * id: Gmail's internal message ID
+     * messageId: RFC 2822 Message-ID header
 
 6. QUALITY STANDARDS:
    - Every insight must be supported by evidence
@@ -95,6 +98,8 @@ JSON Schema:
       "sender": "The sender of the email (e.g. 'John Doe <john@example.com>').",
       "subject": "The subject of the email.",
       "date": "The date the email was sent.",
+      "id": "Gmail's internal message ID (preserve exactly as provided).",
+      "messageId": "RFC 2822 Message-ID header (preserve exactly as provided).",
       "sentiment": {
         "sentiment": "positive"
       }
@@ -107,6 +112,8 @@ JSON Schema:
       "sender": "The sender of the email (e.g. 'John Doe <john@example.com>').",
       "subject": "The subject of the email.",
       "date": "The date the email was sent.",
+      "id": "Gmail's internal message ID (preserve exactly as provided).",
+      "messageId": "RFC 2822 Message-ID header (preserve exactly as provided).",
       "sentiment": {
         "sentiment": "negative"
       }
@@ -119,6 +126,8 @@ JSON Schema:
       "sender": "The sender of the email.",
       "subject": "The subject of the email.",
       "date": "The date the email was sent.",
+      "id": "Gmail's internal message ID (preserve exactly as provided).",
+      "messageId": "RFC 2822 Message-ID header (preserve exactly as provided).",
       "sentiment": {
         "sentiment": "neutral"
       }
