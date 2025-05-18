@@ -1,80 +1,136 @@
 import { google } from 'googleapis';
 import { GaxiosResponse } from 'gaxios';
 import { gmail_v1 } from 'googleapis';
-import fetch from 'node-fetch';
+import type { GmailMessage } from '../types/api';
+import { logger } from '../utils/logging';
 
-interface GmailMessage {
-  sender: string;
-  subject: string;
+interface DailyEmailCount {
   date: string;
-  snippet: string;
-  body: string;
+  positive: number;
+  negative: number;
+  mixed: number;
+  neutral: number;
+}
+
+// Function to get authenticated Gmail service
+async function getGmailService(accessToken: string) {
+  const auth = new google.auth.OAuth2();
+  auth.setCredentials({ access_token: accessToken });
+  return google.gmail({ version: 'v1', auth });
+}
+
+export async function fetchEmailCountLast30Days(accessToken: string): Promise<DailyEmailCount[]> {
+  const gmail = await getGmailService(accessToken);
+  
+  // Calculate date range
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const after = Math.floor(thirtyDaysAgo.getTime() / 1000);
+
+  // Fetch all messages in the last 30 days
+  const listRes: GaxiosResponse<gmail_v1.Schema$ListMessagesResponse> = await gmail.users.messages.list({
+    userId: 'me',
+    q: `after:${after}`,
+    maxResults: 500,
+  });
+
+  const messages = listRes.data.messages || [];
+  logger.info('Gmail API - Messages fetched', { count: messages.length });
+
+  // Create a map to store counts per day
+  const countsByDay = new Map<string, { positive: number; negative: number; mixed: number; neutral: number }>();
+  
+  // Initialize all days in the last 30 days with 0
+  for (let i = 0; i < 30; i++) {
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    const dateStr = date.toISOString().split('T')[0];
+    countsByDay.set(dateStr, { positive: 0, negative: 0, mixed: 0, neutral: 0 });
+  }
+
+  // Get the OpenAI analyzed results
+  const analyzedMessages = await fetchGmailMessages(accessToken);
+  
+  // Process each message and update counts based on OpenAI sentiment analysis
+  for (const message of analyzedMessages) {
+    try {
+      const messageDate = new Date(message.date);
+      const dateStr = messageDate.toISOString().split('T')[0];
+      
+      if (!countsByDay.has(dateStr)) continue;
+      
+      const counts = countsByDay.get(dateStr)!;
+      counts.neutral++; // Default to neutral until analysis is done
+      countsByDay.set(dateStr, counts);
+    } catch (err) {
+      logger.error('Failed to process message', err instanceof Error ? err : new Error(String(err)));
+      continue;
+    }
+  }
+
+  // Convert map to array and sort by date
+  return Array.from(countsByDay.entries())
+    .map(([date, counts]) => ({
+      date,
+      ...counts
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 export async function fetchGmailMessages(accessToken: string): Promise<GmailMessage[]> {
-  const auth = new google.auth.OAuth2();
-  auth.setCredentials({ access_token: accessToken });
-
-  const gmail = google.gmail({ version: 'v1', auth });
-
-  // Fetch the message IDs
-  const listRes: GaxiosResponse<gmail_v1.Schema$ListMessagesResponse> = await gmail.users.messages.list({
+  const gmail = await getGmailService(accessToken);
+  
+  const listRes = await gmail.users.messages.list({
     userId: 'me',
-    q: '',
-    maxResults: 50,
+    maxResults: 500,
   });
 
-  const messageIds = listRes.data.messages?.map((msg) => msg.id) || [];
   const messages: GmailMessage[] = [];
+  const messageIds = listRes.data.messages || [];
 
-  // Fetch the full messages
-  for (const messageId of messageIds) {
+  for (const { id: messageId } of messageIds) {
     if (!messageId) continue;
 
     try {
-      const msgRes = await gmail.users.messages.get({
+      const res = await gmail.users.messages.get({
         userId: 'me',
         id: messageId,
-        format: 'full',
       });
 
-      const payload = msgRes.data.payload;
-      const headers = payload?.headers || [];
-
-      // Extract headers
-      const headerMap = headers.reduce((acc, header) => {
-        if (header.name && header.value) {
-          acc[header.name.toLowerCase()] = header.value;
-        }
-        return acc;
-      }, {} as Record<string, string>);
-
-      const sender = headerMap['from'] || 'Unknown Sender';
-      const subject = headerMap['subject'] || 'No Subject';
-      const date = headerMap['date'] || 'Unknown Date';
-
-      // Extract the email body (assuming plaintext for simplicity)
-      let body = '';
-      if (payload?.parts) {
-        const textPart = payload.parts.find((part) => part.mimeType === 'text/plain');
-        if (textPart?.body?.data) {
-          body = Buffer.from(textPart.body.data, 'base64').toString('utf-8');
-        }
-      } else if (payload?.body?.data) {
-        body = Buffer.from(payload.body.data, 'base64').toString('utf-8');
+      const headers = res.data.payload?.headers;
+      if (!headers) {
+        logger.error('Message has no headers', null, { messageId });
+        continue;
       }
 
-      // Add the full message to the list
-      messages.push({
-        sender,
-        subject,
-        date,
-        snippet: msgRes.data.snippet || '',
-        body,
-      });
+      const sender = headers.find(h => h.name === 'From')?.value || '';
+      const subject = headers.find(h => h.name === 'Subject')?.value || '';
+      const date = headers.find(h => h.name === 'Date')?.value || '';
+
+      let body = '';
+      const parts = res.data.payload?.parts || [];
+      const bodyData = res.data.payload?.body?.data || '';
+
+      if (bodyData) {
+        body = Buffer.from(bodyData, 'base64').toString();
+      } else {
+        for (const part of parts) {
+          if (part.mimeType === 'text/plain' && part.body?.data) {
+            body = Buffer.from(part.body.data, 'base64').toString();
+            break;
+          }
+        }
+      }
+
+      if (!body) {
+        logger.error('No body found for message', null, { messageId });
+        continue;
+      }
+
+      messages.push({ id: messageId, sender, subject, body, date });
     } catch (err) {
-      console.error(`Error fetching message ${messageId}:`, err);
-      continue; // Skip this message and move to the next one
+      logger.error('Failed to fetch message', err instanceof Error ? err : new Error(String(err)), { messageId });
+      continue;
     }
   }
 

@@ -2,6 +2,21 @@ import NextAuth from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import type { JWT } from 'next-auth/jwt';
 import type { Session } from 'next-auth';
+import { logger } from '../../../utils/logging';
+
+// Log environment configuration on startup
+logger.debug('Auth configuration loaded', {
+  hasGoogleId: !!process.env.GOOGLE_ID,
+  hasGoogleSecret: !!process.env.GOOGLE_SECRET,
+  hasNextAuthUrl: !!process.env.NEXTAUTH_URL,
+  hasGoogleScope: !!process.env.GOOGLE_SCOPE,
+});
+
+// Extend the Session type to include our custom properties
+interface ExtendedSession extends Session {
+  accessToken?: string;
+  error?: string;
+}
 
 async function refreshAccessToken(token: JWT) {
   try {
@@ -12,8 +27,8 @@ async function refreshAccessToken(token: JWT) {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({
-        client_id: process.env.GOOGLE_CLIENT_ID!,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+        client_id: process.env.GOOGLE_ID!,
+        client_secret: process.env.GOOGLE_SECRET!,
         refresh_token: token.refreshToken as string,
         grant_type: 'refresh_token',
       }),
@@ -21,9 +36,9 @@ async function refreshAccessToken(token: JWT) {
 
     const refreshedTokens = await response.json();
 
-    if (!response.ok) {
-      console.error('Failed to refresh access token', refreshedTokens);
-      throw new Error('Failed to refresh access token');
+    if (!refreshedTokens.access_token) {
+      logger.error('Failed to refresh access token', new Error('No access token in response'), { refreshedTokens });
+      throw refreshedTokens;
     }
 
     return {
@@ -33,7 +48,8 @@ async function refreshAccessToken(token: JWT) {
       refreshToken: refreshedTokens.refresh_token ?? token.refreshToken,
     };
   } catch (error) {
-    console.error('Error refreshing access token:', error);
+    logger.error('Error refreshing access token', error instanceof Error ? error : new Error(String(error)));
+    
     return {
       ...token,
       error: 'RefreshAccessTokenError',
@@ -44,44 +60,45 @@ async function refreshAccessToken(token: JWT) {
 export default NextAuth({
   providers: [
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      clientId: process.env.GOOGLE_ID!,
+      clientSecret: process.env.GOOGLE_SECRET!,
       authorization: {
         params: {
-          scope: 'https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/userinfo.email',
+          scope: process.env.GOOGLE_SCOPE,
           access_type: 'offline',
           prompt: 'consent',
+          response_type: 'code',
         },
       },
     }),
   ],
-  secret: process.env.SESSION_SECRET,
+  secret: process.env.NEXTAUTH_SECRET,
+  debug: process.env.NODE_ENV === 'development',
   callbacks: {
     async jwt({ token, account }) {
       // Initial sign in
       if (account) {
-        token.accessToken = account.access_token as string;
-        token.refreshToken = account.refresh_token as string;
-        token.accessTokenExpires = Date.now() + (account.expires_in as number) * 1000;
+        return {
+          ...token,
+          accessToken: account.access_token,
+          refreshToken: account.refresh_token,
+          accessTokenExpires: account.expires_at ? account.expires_at * 1000 : 0,
+        };
       }
 
-      // If the access token has not expired yet, return it
-      if (token.accessTokenExpires && Date.now() < (token.accessTokenExpires as number ?? 0)) {
+      // Return previous token if the access token has not expired yet
+      if (Date.now() < (token.accessTokenExpires as number)) {
         return token;
       }
 
-      // If no refresh token is available, return the existing token
-      if (!token.refreshToken) {
-        console.error('No refresh token available');
-        return token;
-      }
-
-      // Attempt to refresh the token
-      return await refreshAccessToken(token);
+      // Access token has expired, try to update it
+      return refreshAccessToken(token);
     },
-    async session({ session, token }) {
-      (session as Session).accessToken = token.accessToken as string;
-      (session as Session).refreshToken = token.refreshToken as string;
+    async session({ session, token }: { session: ExtendedSession; token: JWT }) {
+      if (token) {
+        session.accessToken = token.accessToken as string;
+        session.error = token.error as string | undefined;
+      }
       return session;
     },
   },

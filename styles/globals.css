@@ -1,7 +1,23 @@
+/* Preload font to prevent FOUT */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=block&display=swap') layer(fonts);
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Ensure consistent font loading */
+@layer base {
+  html {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+}
+
+/* Base styles - these will be overridden by Tailwind classes when needed */
+body {
+  @apply bg-white text-gray-900;
+}
 
 :root {
   --background: #ffffff;
@@ -20,15 +36,4 @@
     --background: #0a0a0a;
     --foreground: #ededed;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
-body {
-  font-family: 'Inter', sans-serif;
 }

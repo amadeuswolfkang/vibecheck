@@ -9,6 +9,7 @@
 !.yarn/plugins
 !.yarn/releases
 !.yarn/versions
+package-lock.json
 
 # testing
 /coverage
@@ -16,6 +17,8 @@
 # next.js
 /.next/
 /out/
+/dist/
+.swc/
 
 # production
 /build
@@ -23,15 +26,40 @@
 # misc
 .DS_Store
 *.pem
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
 
 # debug
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+*.log
 
-# env files (can opt-in for committing if needed)
-.env*
+# env files and secrets
+.env
+.env.*
+.env.local
+.env.development
+.env.test
+.env.production
+.env.development.local
+.env.test.local
+.env.production.local
+*.key
+*.secret
+*secret*
+*api_key*
+*apikey*
+*credentials*
+credentials.json
+google-credentials.json
+service-account.json
 
 # vercel
 .vercel
@@ -39,3 +67,34 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# PWA files
+**/public/sw.js
+**/public/workbox-*.js
+**/public/worker-*.js
+**/public/sw.js.map
+**/public/workbox-*.js.map
+**/public/worker-*.js.map
+
+# Optional
+.cache/
+.temp/
+.history/
+
+# Local SSL certificates
+*.crt
+*.key
+*.pem
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# IDE specific files
+.idea/
+.vscode/
+*.sublime-workspace
+*.sublime-project
+.project
+.settings/

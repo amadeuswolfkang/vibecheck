@@ -1,102 +1,109 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { fetchGmailMessages } from '../../lib/gmail';
-import OpenAI from 'openai';
+import { getEmailEmbeddings, classifyEmailSentiments, generateDetailedAnalysis } from '../../lib/openai';
+import { SYSTEM_PROMPTS, FEEDBACK_RESPONSE_FORMAT } from '../../constants/prompts';
+import { parseOpenAIResponse } from '../../utils/openai';
+import type { VibecheckResults, Sentiment } from '../../types/api';
+import { logger, format } from '../../utils/logging';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-});
+const EMPTY_RESULTS: VibecheckResults = {
+  overallSummary: "No feedback available to analyze.",
+  topPraise: "No praise points found.",
+  topPain: "No pain points found.",
+  topIntensity: "No intense feedback found.",
+  topRequestedFeature: "No feature requests found.",
+  praisePoints: [],
+  painPoints: [],
+  requestedFeatures: [],
+  sentimentBreakdown: {
+    positive: 0,
+    negative: 0,
+    mixed: 0,
+    neutral: 0
+  }
+};
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method Not Allowed' });
 
   const { gmailAccessToken } = req.body;
   if (!gmailAccessToken) {
+    logger.warn('Missing Gmail access token in request');
     return res.status(400).json({ error: 'Missing Gmail access token' });
   }
 
   try {
+    const startTime = Date.now();
+    // Log start of analysis
+    logger.info('Starting Gmail feedback analysis process');
+
     // Fetch Gmail messages
     const gmailMessages = await fetchGmailMessages(gmailAccessToken);
+    logger.info('Gmail messages fetched', { message: format.metric('count', gmailMessages.length) });
+    
     if (gmailMessages.length === 0) {
-      return res.status(200).json({ gmailFeedback: [] });
+      logger.info('No messages found, returning empty results');
+      return res.status(200).json({ 
+        gmailFeedback: EMPTY_RESULTS,
+        messages: [],
+        sentiments: []
+      });
     }
 
-    // Prepare the input for the OpenAI model
-    const gmailInput = gmailMessages
-      .slice(0, 50)
-      .map(
-        (msg) =>
-          `From: ${msg.sender}\nSubject: ${msg.subject}\nDate: ${msg.date}\n\n${msg.body}`
-      )
-      .join('\n\n');
+    // Step 1: Get embeddings for all messages
+    logger.debug('Getting embeddings for messages', { message: format.metric('count', gmailMessages.length) });
+    const embeddings = await getEmailEmbeddings(gmailMessages);
+    logger.info('Embeddings generated', { message: format.metric('count', embeddings.length) });
 
-    // Generate feedback summary
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
-      messages: [
-        {
-          role: 'system',
-          content: 'You are a highly responsive, context-aware feedback analyzer and aggregator designed for solo founders, indie developers, and small businesses. Your role is to extract, summarize, and categorize user feedback from Gmail messages, providing concise, actionable insights to improve products.',
+    // Step 2: Classify sentiments using embeddings
+    logger.debug('Classifying sentiments');
+    const sentiments = await classifyEmailSentiments(gmailMessages, embeddings);
+    
+    // Calculate sentiment breakdown from embeddings
+    const sentimentBreakdown = sentiments.reduce((acc, { sentiment }) => {
+      acc[sentiment]++;
+      return acc;
+    }, { positive: 0, negative: 0, mixed: 0, neutral: 0 });
+    
+    logger.info('Sentiments classified', { message: format.breakdown(sentimentBreakdown) });
+
+    // Step 3: Generate detailed analysis using GPT-3.5-turbo
+    logger.debug('Generating detailed analysis');
+    const analysis = await generateDetailedAnalysis(gmailMessages, sentiments);
+
+    // Parse and validate the response
+    logger.debug('Parsing and validating response');
+    const parsed = parseOpenAIResponse<VibecheckResults>(JSON.stringify(analysis));
+    
+    // Use our embedding-based sentiment classifications
+    const results: VibecheckResults = parsed ? {
+      ...parsed,
+      sentimentBreakdown
+    } : EMPTY_RESULTS;
+
+    logger.info('Successfully processed feedback', {
+      message: format.successBlock('Successfully processed feedback', {
+        messageCount: gmailMessages.length,
+        insights: {
+          praisePoints: results.praisePoints.length,
+          painPoints: results.painPoints.length,
+          featureRequests: results.requestedFeatures.length
         },
-        {
-          role: 'user',
-          content: `You're given a list of Gmail messages. Extract real product feedback and summarize it into insights.
-          
-          Return only valid JSON in the following format:
-          {
-            "overallSummary": "A concise, 5–7 sentence overview capturing the most common themes from the feedback, including specific feature praise, pain points, intense reactions, and commonly requested improvements.",
-            "topPraise": "The most commonly praised aspect or feature.",
-            "topPain": "The most common complaint or pain point.",
-            "topIntensity": "The most commonly emotional opinion on an aspect or feature.",
-            "topRequestedFeature": "The most commonly requested specific feature or improvement.",
-            "praisePoints": [
-              {
-                "text": "Summarized insight in 1-2 sentences (e.g. 'Users love the minimal design. It's clean and easy to navigate.')",
-                "source": "A real, exact quoted Gmail message that best illustrates this praise, limited to 80 words. If the quote is longer than 80 words, truncate with an ellipsis and follow it with [truncated].",
-                "sender": "The sender of the email (e.g. 'John Doe <john@example.com>').",
-                "subject": "The subject of the email.",
-                "date": "The date the email was sent."
-              }
-            ],
-            "painPoints": [
-              {
-                "text": "Summarized issue in 1-2 sentences (e.g. 'Shipping delays are a common frustration')",
-                "source": "A real, exact quoted Gmail message that best illustrates this praise, limited to 80 words. If the quote is longer than 80 words, truncate with an ellipsis and follow it with [truncated].",
-                "sender": "The sender of the email (e.g. 'John Doe <john@example.com>').",
-                "subject": "The subject of the email.",
-                "date": "The date the email was sent."
-              }
-            ],
-            "requestedFeatures": [
-              {
-                "text": "A specific feature request that clearly describes a desired addition or enhancement (e.g. 'Add a dark mode', 'Support for offline use', 'Customizable notifications')",
-                "source": "A real quoted Gmail message that best illustrates this specific feature request.",
-                "sender": "The sender of the email.",
-                "subject": "The subject of the email.",
-                "date": "The date the email was sent."
-              }
-            ]
-          }
-          
-          Comments:
-          ${gmailInput}`,
-        },
-      ],
+        sentimentBreakdown
+      })
     });
-
-    let raw = completion.choices[0]?.message?.content?.trim() || '';
-    raw = raw.replace(/^```json|```$/g, '').trim();
-
-    try {
-      const parsed = JSON.parse(raw);
-      res.status(200).json({ gmailFeedback: parsed });
-    } catch (jsonErr) {
-      console.error('Gmail Vibecheck JSON parse error:', jsonErr);
-      console.error('Raw response was:', raw);
-      res.status(500).json({ error: 'Failed to parse AI response', raw });
-    }
-  } catch (err: any) {
-    console.error('Gmail Vibecheck API error:', err.message || err);
-    res.status(500).json({ error: 'AI summarization failed' });
+    
+    return res.status(200).json({ 
+      gmailFeedback: results,
+      messages: gmailMessages,
+      sentiments: sentiments
+    });
+  } catch (err: unknown) {
+    logger.error(
+      'Failed to process feedback',
+      err instanceof Error ? err : new Error(String(err)),
+      { method: req.method, path: req.url }
+    );
+    return res.status(500).json({ error: 'Failed to process feedback' });
   }
 }
