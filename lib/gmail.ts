@@ -12,23 +12,10 @@ interface DailyEmailCount {
   neutral: number;
 }
 
-// Validate access token format
-function isValidAccessToken(token: string): boolean {
-  // Basic validation - tokens should be non-empty strings
-  // and match typical OAuth2 token format
-  return (
-    typeof token === 'string' &&
-    token.length > 0 &&
-    /^[a-zA-Z0-9._-]+$/.test(token)
-  );
-}
+
 
 // Function to get authenticated Gmail service
 async function getGmailService(accessToken: string) {
-  if (!isValidAccessToken(accessToken)) {
-    throw new Error('Invalid access token format');
-  }
-
   try {
     const auth = new google.auth.OAuth2();
     auth.setCredentials({ access_token: accessToken });
@@ -39,40 +26,15 @@ async function getGmailService(accessToken: string) {
   }
 }
 
-// Add rate limiting
-const rateLimiter = {
-  tokens: 100,
-  lastRefill: Date.now(),
-  refillRate: 100, // tokens per second
-  refillInterval: 1000, // 1 second
 
-  async getToken(): Promise<void> {
-    const now = Date.now();
-    const timePassed = now - this.lastRefill;
-    
-    // Refill tokens based on time passed
-    if (timePassed >= this.refillInterval) {
-      this.tokens = Math.min(100, this.tokens + Math.floor(timePassed / 1000) * this.refillRate);
-      this.lastRefill = now;
-    }
 
-    if (this.tokens <= 0) {
-      await new Promise(resolve => setTimeout(resolve, this.refillInterval));
-      return this.getToken();
-    }
-
-    this.tokens--;
-  }
-};
-
-// Add retry mechanism
+// Simple retry mechanism for network failures
 async function retryOperation<T>(
   operation: () => Promise<T>,
   retries = 3,
   delay = 1000
 ): Promise<T> {
   try {
-    await rateLimiter.getToken();
     return await operation();
   } catch (error) {
     if (retries > 0) {

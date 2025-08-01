@@ -1,8 +1,7 @@
 import { ReactNode } from 'react';
 import Link from 'next/link';
 import DarkModeToggle from '../common/DarkModeToggle';
-import { page, layout, text, button, background, animation, cn } from '../../styles';
-import Image from 'next/image';
+import { page, layout, text, button, animation, cn } from '../../styles';
 
 interface LayoutProps {
   children: ReactNode;
@@ -26,7 +25,7 @@ export default function Layout({ children, isAuthenticated, userEmail, onSignIn,
                 'font-bold text-transparent bg-clip-text bg-gradient-to-r',
                 'from-blue-700 to-indigo-700 dark:from-blue-400 dark:to-indigo-400',
                 'relative inline-block hover:opacity-80',
-                animation.transition.base
+                animation.transition
               )}>
                 Vibeloop
               </h1>

@@ -71,18 +71,99 @@ export interface EmbeddingWithMetadata {
   messageIndex: number;
 }
 
-// Sentiment anchor embeddings (normalized vectors)
-const SENTIMENT_ANCHORS = {
-  POSITIVE: new Float32Array(Array(1536).fill(0).map((_, i) => 
-    i < 100 ? 0.1 : (i < 200 ? 0.05 : (i < 300 ? 0.02 : 0))
-  )),
-  NEGATIVE: new Float32Array(Array(1536).fill(0).map((_, i) => 
-    i < 100 ? -0.1 : (i < 200 ? -0.05 : (i < 300 ? -0.02 : 0))
-  )),
-  NEUTRAL: new Float32Array(Array(1536).fill(0).map((_, i) => 
-    i < 100 ? 0.01 : (i < 200 ? -0.01 : 0)
-  ))
+// Product feedback text samples for generating semantic anchors
+const PRODUCT_FEEDBACK_TEXTS = {
+  POSITIVE: `love this feature works great easy to use helpful solves my problem 
+             exactly what I needed perfect functionality smooth experience 
+             intuitive design user friendly saves time efficient workflow 
+             excellent product quality impressed with performance reliable 
+             stable fast responsive well designed thoughtful implementation 
+             great improvement valuable addition highly useful recommended 
+             satisfied with results exceeded expectations brilliant solution 
+             innovative feature appreciate the update fantastic job well done`,
+             
+  NEGATIVE: `doesn't work broken feature confusing interface hard to use 
+             frustrated with bugs crashes frequently slow performance 
+             poor user experience difficult to navigate unintuitive design 
+             missing functionality limited options inadequate solution 
+             not working as expected disappointed with quality unreliable 
+             constant issues technical problems error messages frequent 
+             crashes waste of time complicated setup poor documentation 
+             regression from previous version needs major improvements`,
+             
+  NEUTRAL: `how do I use this feature can you add functionality suggestion 
+            for improvement question about implementation when will this 
+            be available is it possible to include feature request 
+            documentation unclear need clarification steps to reproduce 
+            current behavior expected behavior comparison with competitors 
+            technical specifications system requirements compatibility 
+            installation instructions setup process configuration options 
+            training materials user guide tutorial needed more information`
 };
+
+// Generate semantic sentiment anchors from real text
+async function generateProductFeedbackAnchors(): Promise<{[key: string]: Float32Array}> {
+  const anchors: {[key: string]: Float32Array} = {};
+  
+  for (const [category, text] of Object.entries(PRODUCT_FEEDBACK_TEXTS)) {
+    try {
+      const cleanText = text.replace(/\s+/g, ' ').trim();
+      
+      const response = await withOpenAIRetry(
+        () => openai.embeddings.create({
+          model: 'text-embedding-ada-002',
+          input: cleanText,
+        }),
+        'anchor generation'
+      );
+
+      // Track token usage for anchor generation
+      tokenTracker.trackUsage('text-embedding-ada-002', {
+        prompt: 0.0001,
+        completion: 0.0001
+      }, {
+        prompt_tokens: response.usage.total_tokens,
+        completion_tokens: 0,
+        total_tokens: response.usage.total_tokens
+      });
+
+      anchors[category] = new Float32Array(response.data[0].embedding);
+      
+    } catch (error) {
+      logger.error(`Failed to generate ${category} sentiment anchor`, error instanceof Error ? error : new Error(String(error)));
+      throw new Error(`Failed to generate sentiment anchors: ${error}`);
+    }
+  }
+  
+  return anchors;
+}
+
+
+
+// Helper function for calculating sentiment with provided anchors
+function calculateSentimentScoreWithAnchors(embedding: number[], anchors: {[key: string]: Float32Array}): number {
+  // Normalize the input embedding
+  const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+  const normalized = embedding.map(val => val / magnitude);
+
+  // Calculate cosine similarity with sentiment anchors
+  const positiveSim = cosineSimilarity(normalized, anchors.POSITIVE);
+  const negativeSim = cosineSimilarity(normalized, anchors.NEGATIVE);
+
+  // Calculate sentiment score based on similarities
+  return positiveSim - negativeSim;
+}
+
+// Initialize sentiment anchors (will be populated on first use)
+let SENTIMENT_ANCHORS: {[key: string]: Float32Array} | null = null;
+
+// Get or generate sentiment anchors
+async function getSentimentAnchors(): Promise<{[key: string]: Float32Array}> {
+  if (SENTIMENT_ANCHORS === null) {
+    SENTIMENT_ANCHORS = await generateProductFeedbackAnchors();
+  }
+  return SENTIMENT_ANCHORS;
+}
 
 // Sentiment classification thresholds
 const SENTIMENT_THRESHOLDS = {
@@ -167,7 +248,7 @@ export async function classifyEmailSentiments(
       }
 
       // Calculate sentiment score using embedding values
-      const sentimentScore = calculateSentimentScore(embedding);
+      const sentimentScore = await calculateSentimentScore(embedding);
       
       // Determine sentiment category and confidence
       const { sentiment, confidence } = determineSentiment(sentimentScore);
@@ -190,7 +271,7 @@ export async function classifyEmailSentiments(
   return internalSentiments.map(({ sentiment }) => ({ sentiment }));
 }
 
-function calculateSentimentScore(embedding: number[]): number {
+async function calculateSentimentScore(embedding: number[]): Promise<number> {
   try {
     if (!Array.isArray(embedding) || embedding.length === 0) {
       logger.warn('Invalid embedding received', { 
@@ -210,17 +291,11 @@ function calculateSentimentScore(embedding: number[]): number {
       return 0;
     }
 
-    // Normalize the input embedding
-    const magnitude = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
-    const normalized = embedding.map(val => val / magnitude);
+    // Get semantic sentiment anchors
+    const anchors = await getSentimentAnchors();
 
-    // Calculate cosine similarity with sentiment anchors
-    const positiveSim = cosineSimilarity(normalized, SENTIMENT_ANCHORS.POSITIVE);
-    const negativeSim = cosineSimilarity(normalized, SENTIMENT_ANCHORS.NEGATIVE);
-    const neutralSim = cosineSimilarity(normalized, SENTIMENT_ANCHORS.NEUTRAL);
-
-    // Calculate sentiment score based on similarities
-    return positiveSim - negativeSim;
+    // Use the helper function with the loaded anchors
+    return calculateSentimentScoreWithAnchors(embedding, anchors);
   } catch (err) {
     logger.error(
       'Failed to calculate sentiment score',

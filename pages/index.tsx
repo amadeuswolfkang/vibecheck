@@ -8,7 +8,7 @@ import EmailCountChart from '../components/features/EmailCountChart';
 import { API_ENDPOINTS } from '../constants/api';
 import { useAuth } from '../hooks/useAuth';
 import type { VibeloopResults, GmailMessage, EmailSentiment } from '../types/api';
-import { logger, format } from '../utils/logging';
+import { logger } from '../utils/logging';
 
 const LOADING_MESSAGES = [
   "Finding insights... This won't take long.",

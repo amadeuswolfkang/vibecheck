@@ -4,7 +4,7 @@ import type { Props as RechartsLegendProps } from 'recharts/types/component/Defa
 import { motion } from 'framer-motion';
 import Card from '../common/Card';
 import { chart, text, layout, animation, cn } from '../../styles';
-import type { VibeloopResults, FeedbackPoint, Sentiment, GmailMessage, EmailSentiment } from '../../types/api';
+import type { VibeloopResults, Sentiment, GmailMessage, EmailSentiment } from '../../types/api';
 
 interface EmailCount {
   date: string;

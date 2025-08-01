@@ -2,17 +2,14 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { z } from 'zod';
 import { fetchGmailMessages } from '../../lib/gmail';
 import { getEmailEmbeddings, classifyEmailSentiments, generateDetailedAnalysis } from '../../lib/openai';
-import { SYSTEM_PROMPTS, FEEDBACK_RESPONSE_FORMAT } from '../../constants/prompts';
 import { parseOpenAIResponse } from '../../utils/openai';
 import type { VibeloopResults, Sentiment } from '../../types/api';
-import { logger, format } from '../../utils/logging';
-import { withRateLimit } from '../../lib/rate-limit';
+import { logger } from '../../utils/logging';
+
 
 // Request validation schema
 const requestSchema = z.object({
-  gmailAccessToken: z.string()
-    .min(1, 'Access token is required')
-    .regex(/^[a-zA-Z0-9-._~+/]+=*$/, 'Invalid access token format'),
+  gmailAccessToken: z.string().min(1, 'Access token is required'),
 });
 
 type RequestBody = z.infer<typeof requestSchema>;
@@ -34,11 +31,7 @@ const EMPTY_RESULTS: VibeloopResults = {
   }
 };
 
-// Apply standard rate limiting
-const handler = withRateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 30 // 30 requests per minute (1 request every 2 seconds)
-})(async function handler(req: NextApiRequest, res: NextApiResponse) {
+async function handler(req: NextApiRequest, res: NextApiResponse) {
   // Method validation
   if (req.method !== 'POST') {
     return res.status(405).json({ 
@@ -147,6 +140,6 @@ const handler = withRateLimit({
       message: 'Failed to analyze Gmail data'
     });
   }
-});
+}
 
 export default handler;

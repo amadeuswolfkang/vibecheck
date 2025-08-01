@@ -72,8 +72,6 @@ export default function FeedbackDisplay({ data, isAnalyzing = false }: FeedbackD
             {point.sender && (
               <SenderBadge 
                 sender={point.sender} 
-                messageId={point.rfc822MessageId}
-                id={point.messageId}
               />
             )}
             {point.date && (
