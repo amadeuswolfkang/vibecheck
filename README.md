@@ -1,6 +1,6 @@
-# Vibeloop
+# Vibecheck
 
-Vibeloop is an advanced feedback analysis system that processes and analyzes email feedback using AI to provide actionable insights and sentiment analysis.
+Vibecheck is an advanced feedback analysis system that processes and analyzes email feedback using AI to provide actionable insights and sentiment analysis.
 
 ## Core Features
 
