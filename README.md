@@ -2,9 +2,8 @@
 
 Vibecheck turns your inbox into a product feedback dashboard. It connects to Gmail, runs recent emails through a two-stage AI analysis, and shows you what people praise, what causes pain, and what they're asking for, with sentiment trends over the last 30 days.
 
-<img width="683" height="455" alt="image" src="https://github.com/user-attachments/assets/926b8c25-c66b-4e5e-b9f9-b6c3b3065ab7" />
-<img width="960" height="455" alt="image" src="https://github.com/user-attachments/assets/de4983c0-4074-4966-a022-4203c30ccb18" />
-
+<img width="750" height="500" alt="image" src="https://github.com/user-attachments/assets/926b8c25-c66b-4e5e-b9f9-b6c3b3065ab7" />
+<img width="1054" height="500" alt="image" src="https://github.com/user-attachments/assets/de4983c0-4074-4966-a022-4203c30ccb18" />
 
 ## How It Works
 
