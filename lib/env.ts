@@ -12,6 +12,10 @@ const envSchema = z.object({
   
   // OpenAI
   OPENAI_API_KEY: z.string().min(1),
+
+  // Gmail search query used to select feedback emails, e.g. "label:feedback newer_than:90d".
+  // Defaults to newer_than:30d (matching the UI's 30-day window); set to "" to fetch everything.
+  GMAIL_QUERY: z.string().optional(),
   
   // Environment
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),

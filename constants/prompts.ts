@@ -117,22 +117,5 @@ For all points (summary and top points):
 - Reference actual user feedback
 
 Return in this JSON format:
-${FEEDBACK_RESPONSE_FORMAT}`,
-
-  TOP_POINTS: `Identify the most significant specific points from the feedback:
-
-Each point must be specific (MAX ${CHAR_LIMITS.TOP_POINT} chars each):
-* Most impactful praise - Cite exact feature/aspect and its positive impact
-* Most critical pain point - Name exact issue/bug/limitation and its effect
-* Most intense feedback - Quote specific strong reaction and its context
-* Most requested feature - State exact functionality users want
-
-Requirements:
-- NO generic statements like "Users liked the interface" or "Performance needs improvement"
-- MUST reference specific details from actual messages
-- MUST include what exactly was praised/criticized/requested
-- MUST maintain clear connection to source messages
-
-Return in this JSON format:
 ${FEEDBACK_RESPONSE_FORMAT}`
 } as const;

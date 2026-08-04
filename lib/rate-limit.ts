@@ -1,5 +1,5 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { env } from './env';
+import { ENV } from './config';
 
 interface RateLimitStore {
   [key: string]: {
@@ -47,7 +47,7 @@ export function withRateLimit(config: RateLimitConfig = {}) {
   return function rateLimit(handler: Function) {
     return async function (req: NextApiRequest, res: NextApiResponse) {
       // Skip rate limiting in development
-      if (env.isDev) {
+      if (ENV.isDev) {
         return handler(req, res);
       }
 

@@ -2,7 +2,7 @@ import FeedbackSection from './FeedbackSection';
 import Card from '../common/Card';
 import Badge from '../common/Badge';
 import SenderBadge from '../common/SenderBadge';
-import type { MessageInsight, VibeloopResults } from '../../types/api';
+import type { MessageInsight, VibecheckResults } from '../../types/api';
 import { formatDate } from '../../utils/date';
 import { useState, useEffect } from 'react';
 
@@ -33,7 +33,7 @@ const COLORS = {
 } as const;
 
 interface FeedbackDisplayProps {
-  data: VibeloopResults;
+  data: VibecheckResults;
   isAnalyzing?: boolean;
 }
 

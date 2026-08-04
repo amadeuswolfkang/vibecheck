@@ -1,23 +1,23 @@
 import OpenAI from 'openai';
-import type { 
-  EmailSentiment, 
-  InternalEmailSentiment,
-  Sentiment, 
-  GmailMessage, 
-  VibeloopResults,
+import type {
+  EmailSentiment,
+  Sentiment,
+  GmailMessage,
+  VibecheckResults,
   SentimentBreakdown,
   ProcessedMessage,
   MessageInsight
 } from '../types/api';
 import { logger, tokenTracker } from '../utils/logging';
-import { SYSTEM_PROMPTS, FEEDBACK_RESPONSE_FORMAT, CHAR_LIMITS } from '../constants/prompts';
+import { SYSTEM_PROMPTS, CHAR_LIMITS } from '../constants/prompts';
+import { MODEL_PRICING } from '../config/model-pricing';
+import { embeddingCache, insightCache, type CachedInsight } from './cache';
 import { env } from '../lib/env';
 
-// OpenAI client configuration
+// OpenAI client configuration; the SDK retries failed requests with backoff
 const OPENAI_CONFIG = {
   MAX_RETRIES: 3,
   TIMEOUT_MS: 30000, // 30 seconds
-  RETRY_DELAY_MS: 1000, // 1 second
 };
 
 const openai = new OpenAI({
@@ -26,50 +26,18 @@ const openai = new OpenAI({
   maxRetries: OPENAI_CONFIG.MAX_RETRIES,
 });
 
-// Retry wrapper for OpenAI API calls
-async function withOpenAIRetry<T>(
-  operation: () => Promise<T>,
-  context: string
-): Promise<T> {
-  let lastError: Error | null = null;
-  
-  for (let attempt = 1; attempt <= OPENAI_CONFIG.MAX_RETRIES; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      
-      // Log the retry attempt
-      logger.warn(`OpenAI API ${context} failed, attempt ${attempt}/${OPENAI_CONFIG.MAX_RETRIES}`, {
-        error: {
-          name: lastError.name,
-          message: lastError.message
-        },
-        attempt,
-        maxRetries: OPENAI_CONFIG.MAX_RETRIES
-      });
-
-      // Don't wait on the last attempt
-      if (attempt < OPENAI_CONFIG.MAX_RETRIES) {
-        await new Promise(resolve => 
-          setTimeout(resolve, OPENAI_CONFIG.RETRY_DELAY_MS * attempt)
-        );
-      }
-    }
+// Thrown when the AI service failed outright (quota, outage), as opposed to
+// legitimately finding nothing — lets the API route return a real error instead
+// of a plausible-looking empty result
+export class AnalysisUnavailableError extends Error {
+  constructor(message = 'AI analysis is unavailable') {
+    super(message);
+    this.name = 'AnalysisUnavailableError';
   }
-
-  // If we get here, all retries failed
-  throw new Error(`OpenAI API ${context} failed after ${OPENAI_CONFIG.MAX_RETRIES} attempts: ${lastError?.message}`);
 }
 
 // Increase batch size for processing more messages efficiently
 const BATCH_SIZE = 20;
-
-// Make EmbeddingWithMetadata available for the cache
-export interface EmbeddingWithMetadata {
-  embedding: number[];
-  messageIndex: number;
-}
 
 // Product feedback text samples for generating semantic anchors
 const PRODUCT_FEEDBACK_TEXTS = {
@@ -82,23 +50,14 @@ const PRODUCT_FEEDBACK_TEXTS = {
              satisfied with results exceeded expectations brilliant solution 
              innovative feature appreciate the update fantastic job well done`,
              
-  NEGATIVE: `doesn't work broken feature confusing interface hard to use 
-             frustrated with bugs crashes frequently slow performance 
-             poor user experience difficult to navigate unintuitive design 
-             missing functionality limited options inadequate solution 
-             not working as expected disappointed with quality unreliable 
-             constant issues technical problems error messages frequent 
-             crashes waste of time complicated setup poor documentation 
-             regression from previous version needs major improvements`,
-             
-  NEUTRAL: `how do I use this feature can you add functionality suggestion 
-            for improvement question about implementation when will this 
-            be available is it possible to include feature request 
-            documentation unclear need clarification steps to reproduce 
-            current behavior expected behavior comparison with competitors 
-            technical specifications system requirements compatibility 
-            installation instructions setup process configuration options 
-            training materials user guide tutorial needed more information`
+  NEGATIVE: `doesn't work broken feature confusing interface hard to use
+             frustrated with bugs crashes frequently slow performance
+             poor user experience difficult to navigate unintuitive design
+             missing functionality limited options inadequate solution
+             not working as expected disappointed with quality unreliable
+             constant issues technical problems error messages frequent
+             crashes waste of time complicated setup poor documentation
+             regression from previous version needs major improvements`
 };
 
 // Generate semantic sentiment anchors from real text
@@ -108,20 +67,14 @@ async function generateProductFeedbackAnchors(): Promise<{[key: string]: Float32
   for (const [category, text] of Object.entries(PRODUCT_FEEDBACK_TEXTS)) {
     try {
       const cleanText = text.replace(/\s+/g, ' ').trim();
-      
-      const response = await withOpenAIRetry(
-        () => openai.embeddings.create({
-          model: 'text-embedding-ada-002',
-          input: cleanText,
-        }),
-        'anchor generation'
-      );
+
+      const response = await openai.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: cleanText,
+      });
 
       // Track token usage for anchor generation
-      tokenTracker.trackUsage('text-embedding-ada-002', {
-        prompt: 0.0001,
-        completion: 0.0001
-      }, {
+      tokenTracker.trackUsage('text-embedding-3-small', MODEL_PRICING['text-embedding-3-small'], {
         prompt_tokens: response.usage.total_tokens,
         completion_tokens: 0,
         total_tokens: response.usage.total_tokens
@@ -173,41 +126,54 @@ const SENTIMENT_THRESHOLDS = {
   NEUTRAL: -0.01,
 };
 
-export async function getEmailEmbeddings(messages: GmailMessage[]): Promise<EmbeddingWithMetadata[]> {
-  const embeddings: EmbeddingWithMetadata[] = [];
-  
-  // Process messages in batches
-  for (let i = 0; i < messages.length; i += BATCH_SIZE) {
-    const batch = messages.slice(i, i + BATCH_SIZE);
-    const texts = batch.map(msg => 
+// Returns embeddings keyed by Gmail message ID, serving repeat messages from cache
+export async function getEmailEmbeddings(messages: GmailMessage[]): Promise<Map<string, number[]>> {
+  const embeddingsById = new Map<string, number[]>();
+  const uncached: GmailMessage[] = [];
+
+  for (const msg of messages) {
+    const cached = embeddingCache.get(msg.id);
+    if (cached) {
+      embeddingsById.set(msg.id, cached);
+    } else {
+      uncached.push(msg);
+    }
+  }
+
+  if (uncached.length < messages.length) {
+    logger.info('Embedding cache hits', {
+      cached: messages.length - uncached.length,
+      toEmbed: uncached.length
+    });
+  }
+
+  // Process uncached messages in batches
+  for (let i = 0; i < uncached.length; i += BATCH_SIZE) {
+    const batch = uncached.slice(i, i + BATCH_SIZE);
+    const texts = batch.map(msg =>
       `Subject: ${msg.subject}\n\nBody: ${msg.body}`
     );
-    
+
     try {
-      const response = await withOpenAIRetry(
-        () => openai.embeddings.create({
-          model: 'text-embedding-ada-002',
-          input: texts,
-        }),
-        'embeddings generation'
-      );
+      const response = await openai.embeddings.create({
+        model: 'text-embedding-3-small',
+        input: texts,
+      });
 
       // Log token usage for embeddings
-      tokenTracker.trackUsage('text-embedding-ada-002', {
-        prompt: 0.0001,
-        completion: 0.0001
-      }, {
+      tokenTracker.trackUsage('text-embedding-3-small', MODEL_PRICING['text-embedding-3-small'], {
         prompt_tokens: response.usage.total_tokens,
         completion_tokens: 0,
         total_tokens: response.usage.total_tokens
       });
-      
-      response.data.forEach((item, batchIndex) => {
-        embeddings.push({
-          embedding: item.embedding,
-          messageIndex: i + batchIndex,
-        });
-      });
+
+      for (const item of response.data) {
+        // item.index is the position within this batch's input array
+        const msg = batch[item.index];
+        if (!msg) continue;
+        embeddingsById.set(msg.id, item.embedding);
+        embeddingCache.set(msg.id, item.embedding);
+      }
     } catch (err) {
       logger.error(
         'Failed to get embeddings for batch',
@@ -218,57 +184,47 @@ export async function getEmailEmbeddings(messages: GmailMessage[]): Promise<Embe
       continue;
     }
   }
-  
-  return embeddings;
+
+  return embeddingsById;
 }
 
+// Returns one sentiment per message, aligned with the input array; messages
+// without an embedding (failed batch) fall back to neutral
 export async function classifyEmailSentiments(
   messages: GmailMessage[],
-  embeddings: EmbeddingWithMetadata[]
+  embeddingsById: Map<string, number[]>
 ): Promise<EmailSentiment[]> {
-  // Initialize sentiments array with neutral sentiment as fallback
-  const defaultSentiment: InternalEmailSentiment = { sentiment: 'neutral', score: 0.5 };
-  const internalSentiments: InternalEmailSentiment[] = new Array(messages.length).fill(defaultSentiment);
-  
-  // Validate input arrays
-  if (messages.length === 0 || embeddings.length === 0) {
+  if (messages.length === 0 || embeddingsById.size === 0) {
     logger.warn('Empty input for sentiment classification', {
       messageCount: messages.length,
-      embeddingCount: embeddings.length
+      embeddingCount: embeddingsById.size
     });
-    return internalSentiments.map(({ sentiment }) => ({ sentiment }));
+    return messages.map(() => ({ sentiment: 'neutral' }));
   }
 
-  // Process each embedding
-  for (const { embedding, messageIndex } of embeddings) {
-    try {
-      if (messageIndex < 0 || messageIndex >= messages.length) {
-        logger.warn('Invalid message index in embedding', { messageIndex, maxIndex: messages.length - 1 });
-        continue;
-      }
+  const sentiments: EmailSentiment[] = [];
 
-      // Calculate sentiment score using embedding values
+  for (const msg of messages) {
+    const embedding = embeddingsById.get(msg.id);
+    if (!embedding) {
+      sentiments.push({ sentiment: 'neutral' });
+      continue;
+    }
+
+    try {
       const sentimentScore = await calculateSentimentScore(embedding);
-      
-      // Determine sentiment category and confidence
-      const { sentiment, confidence } = determineSentiment(sentimentScore);
-      
-      internalSentiments[messageIndex] = {
-        sentiment,
-        score: confidence,
-      };
+      sentiments.push({ sentiment: determineSentiment(sentimentScore).sentiment });
     } catch (err) {
       logger.error(
         'Failed to classify sentiment for message',
         err instanceof Error ? err : new Error(String(err)),
-        { messageIndex }
+        { }
       );
-      // Keep default neutral sentiment for this message
+      sentiments.push({ sentiment: 'neutral' });
     }
   }
-  
-  // Convert internal sentiments to external format
-  return internalSentiments.map(({ sentiment }) => ({ sentiment }));
+
+  return sentiments;
 }
 
 async function calculateSentimentScore(embedding: number[]): Promise<number> {
@@ -326,7 +282,7 @@ function determineSentiment(score: number): { sentiment: Sentiment; confidence: 
   }
 }
 
-const DEFAULT_RESULTS: VibeloopResults = {
+const DEFAULT_RESULTS: VibecheckResults = {
   overallSummary: '',
   topPraise: '',
   topPain: '',
@@ -343,26 +299,10 @@ const DEFAULT_RESULTS: VibeloopResults = {
   }
 };
 
-function isVibeloopResults(value: unknown): value is VibeloopResults {
-  if (!value || typeof value !== 'object') return false;
-  
-  const result = value as VibeloopResults;
-  return (
-    typeof result.overallSummary === 'string' &&
-    typeof result.topPraise === 'string' &&
-    typeof result.topPain === 'string' &&
-    typeof result.topIntensity === 'string' &&
-    typeof result.topRequestedFeature === 'string' &&
-    Array.isArray(result.praisePoints) &&
-    Array.isArray(result.painPoints) &&
-    Array.isArray(result.requestedFeatures)
-  );
-}
-
 export async function generateDetailedAnalysis(
   messages: GmailMessage[],
   sentiments: EmailSentiment[]
-): Promise<VibeloopResults> {
+): Promise<VibecheckResults> {
   if (messages.length === 0 || sentiments.length === 0) {
     logger.warn('Empty input for analysis', {
       messageCount: messages.length,
@@ -377,17 +317,36 @@ export async function generateDetailedAnalysis(
     sentiment: sentiments[index]
   }));
 
-  // Step 2: Process in smaller chunks for token limits
-  const CHUNK_SIZE = 25;
-  const allInsights: MessageInsight[] = [];
+  // Step 2: Serve previously analyzed messages from cache; a cached null means
+  // GPT already looked at the message and extracted no insight
+  const insightById = new Map<string, CachedInsight>();
+  const uncached: ProcessedMessage[] = [];
 
-  for (let i = 0; i < processedMessages.length; i += CHUNK_SIZE) {
-    const chunk = processedMessages.slice(i, i + CHUNK_SIZE);
-    
+  for (const pm of processedMessages) {
+    const cached = insightCache.get(pm.message.id);
+    if (cached === undefined) {
+      uncached.push(pm);
+    } else if (cached !== null) {
+      insightById.set(pm.message.id, cached);
+    }
+  }
+
+  if (uncached.length < processedMessages.length) {
+    logger.info('Insight cache hits', {
+      cached: processedMessages.length - uncached.length,
+      toAnalyze: uncached.length
+    });
+  }
+
+  // Step 3: Let AI analyze uncached messages, in smaller chunks for token limits
+  const CHUNK_SIZE = 25;
+
+  for (let i = 0; i < uncached.length; i += CHUNK_SIZE) {
+    const chunk = uncached.slice(i, i + CHUNK_SIZE);
+
     try {
-      // Step 3: Let AI analyze each message in the chunk
       const completion = await openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4o-mini',
         response_format: { type: "json_object" },
         messages: [
           {
@@ -406,46 +365,68 @@ export async function generateDetailedAnalysis(
         ],
       });
 
+      if (completion.usage) {
+        tokenTracker.trackUsage('gpt-4o-mini', MODEL_PRICING['gpt-4o-mini'], completion.usage);
+      }
+
       const rawResult = completion.choices[0]?.message?.content;
       if (!rawResult) continue;
 
-      // Step 4: Parse AI response and reconstruct with preserved message data
       const aiAnalysis = JSON.parse(rawResult);
-      
-      // Step 5: Map AI insights back to original messages
-      const chunkInsights = aiAnalysis.messageInsights
-        .map((insight: any) => {
-          const processedMessage = chunk[insight.messageIndex];
-          if (!processedMessage) {
-            logger.warn('Invalid message index in AI response', { insight });
-            return null;
-          }
+      if (!Array.isArray(aiAnalysis.messageInsights)) {
+        logger.warn('AI response missing messageInsights, skipping chunk');
+        continue;
+      }
 
-          return {
-            messageId: processedMessage.message.id,
-            rfc822MessageId: processedMessage.message.messageId,
-            insight: insight.insight,
-            quote: insight.quote,
-            sender: processedMessage.message.sender,
-            subject: processedMessage.message.subject,
-            date: processedMessage.message.date,
-            sentiment: processedMessage.sentiment,
-            category: insight.category
-          } as MessageInsight;
-        })
-        .filter(Boolean);
+      // Map AI insights back to messages by their index within this chunk
+      const insightsByChunkIndex = new Map<number, CachedInsight>();
+      for (const insight of aiAnalysis.messageInsights) {
+        if (!chunk[insight.messageIndex]) {
+          logger.warn('Invalid message index in AI response', { insight });
+          continue;
+        }
+        insightsByChunkIndex.set(insight.messageIndex, {
+          insight: insight.insight,
+          quote: insight.quote,
+          category: insight.category
+        });
+      }
 
-      allInsights.push(...chunkInsights);
+      // Cache every message in the chunk — null for those GPT had nothing on
+      chunk.forEach((pm, index) => {
+        const extracted = insightsByChunkIndex.get(index) ?? null;
+        insightCache.set(pm.message.id, extracted);
+        if (extracted) insightById.set(pm.message.id, extracted);
+      });
     } catch (err) {
       logger.error('Failed to analyze chunk', err instanceof Error ? err : new Error(String(err)));
       continue;
     }
   }
 
-  // Step 6: Generate summaries using OpenAI
+  // Step 4: Assemble insights in message order, attaching per-message context
+  const allInsights: MessageInsight[] = [];
+  for (const pm of processedMessages) {
+    const extracted = insightById.get(pm.message.id);
+    if (!extracted) continue;
+
+    allInsights.push({
+      messageId: pm.message.id,
+      rfc822MessageId: pm.message.messageId,
+      insight: extracted.insight,
+      quote: extracted.quote,
+      sender: pm.message.sender,
+      subject: pm.message.subject,
+      date: pm.message.date,
+      sentiment: pm.sentiment,
+      category: extracted.category
+    });
+  }
+
+  // Step 5: Generate summaries using OpenAI
   try {
     const summaryCompletion = await openai.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o-mini',
       response_format: { type: "json_object" },
       messages: [
         {
@@ -463,10 +444,14 @@ export async function generateDetailedAnalysis(
       ]
     });
 
+    if (summaryCompletion.usage) {
+      tokenTracker.trackUsage('gpt-4o-mini', MODEL_PRICING['gpt-4o-mini'], summaryCompletion.usage);
+    }
+
     const summaryResult = JSON.parse(summaryCompletion.choices[0]?.message?.content || '{}');
 
     // Enforce character limits on the results
-    const results: VibeloopResults = {
+    const results: VibecheckResults = {
       overallSummary: (summaryResult.overallSummary || summarizeFallback(allInsights)).slice(0, CHAR_LIMITS.OVERALL_SUMMARY),
       topPraise: (summaryResult.topPraise || selectTopInsight(allInsights.filter(i => i.category === 'praise'))).slice(0, CHAR_LIMITS.TOP_POINT),
       topPain: (summaryResult.topPain || selectTopInsight(allInsights.filter(i => i.category === 'pain'))).slice(0, CHAR_LIMITS.TOP_POINT),
@@ -481,7 +466,13 @@ export async function generateDetailedAnalysis(
     return results;
   } catch (err) {
     logger.error('Failed to generate summaries', err instanceof Error ? err : new Error(String(err)));
-    
+
+    // If insight extraction also produced nothing, every chat call failed —
+    // the service is down, not merely quiet
+    if (allInsights.length === 0) {
+      throw new AnalysisUnavailableError('Summary generation failed and no insights were extracted');
+    }
+
     // Fallback to basic summaries if OpenAI call fails
     return {
       overallSummary: summarizeFallback(allInsights),

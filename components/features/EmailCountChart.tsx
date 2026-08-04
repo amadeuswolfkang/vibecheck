@@ -4,7 +4,7 @@ import type { Props as RechartsLegendProps } from 'recharts/types/component/Defa
 import { motion } from 'framer-motion';
 import Card from '../common/Card';
 import { chart, text, layout, animation, cn } from '../../styles';
-import type { VibeloopResults, Sentiment, GmailMessage, EmailSentiment } from '../../types/api';
+import type { VibecheckResults, GmailMessage, EmailSentiment } from '../../types/api';
 
 interface EmailCount {
   date: string;
@@ -17,13 +17,6 @@ interface EmailCount {
 interface ChartState {
   activeTooltipIndex?: number;
   chartX?: number;
-}
-
-interface LegendProps {
-  payload?: {
-    value: string;
-    color: string;
-  }[];
 }
 
 const DailyStats = ({ 
@@ -53,19 +46,19 @@ const DailyStats = ({
     <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-2 text-xs w-28 sm:w-32">
       <p className="font-medium mb-1">{formattedDate}</p>
       <div className="flex justify-between gap-1 sm:gap-2">
-        <span className="text-emerald-600 dark:text-emerald-400">Positive</span>
+        <span className="text-emerald-700 dark:text-emerald-400">Positive</span>
         <span>{Math.round(currentData.positive)}</span>
       </div>
       <div className="flex justify-between gap-2 sm:gap-6">
-        <span className="text-red-500">Negative</span>
+        <span className="text-red-600 dark:text-red-400">Negative</span>
         <span>{Math.round(currentData.negative)}</span>
       </div>
       <div className="flex justify-between gap-2 sm:gap-6">
-        <span className="text-amber-500">Mixed</span>
+        <span className="text-amber-700 dark:text-amber-500">Mixed</span>
         <span>{Math.round(currentData.mixed)}</span>
       </div>
       <div className="flex justify-between gap-2 sm:gap-6">
-        <span className="text-gray-400">Neutral</span>
+        <span className="text-gray-500 dark:text-gray-400">Neutral</span>
         <span>{Math.round(currentData.neutral)}</span>
       </div>
       <div className="flex justify-between gap-2 sm:gap-6 pt-1 mt-2 border-t border-gray-200 dark:border-gray-700">
@@ -94,19 +87,19 @@ const TotalStats = ({ data }: { data: EmailCount[] }) => {
     <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm p-2 text-xs w-28 sm:w-32">
       <p className="font-medium mb-1">30 Day Total</p>
       <div className="flex justify-between gap-1 sm:gap-2">
-        <span className="text-emerald-600 dark:text-emerald-400">Positive</span>
+        <span className="text-emerald-700 dark:text-emerald-400">Positive</span>
         <span>{Math.round(totals.positive || 0)}</span>
       </div>
       <div className="flex justify-between gap-2 sm:gap-6">
-        <span className="text-red-500">Negative</span>
+        <span className="text-red-600 dark:text-red-400">Negative</span>
         <span>{Math.round(totals.negative || 0)}</span>
       </div>
       <div className="flex justify-between gap-2 sm:gap-6">
-        <span className="text-amber-500">Mixed</span>
+        <span className="text-amber-700 dark:text-amber-500">Mixed</span>
         <span>{Math.round(totals.mixed || 0)}</span>
       </div>
       <div className="flex justify-between gap-2 sm:gap-6">
-        <span className="text-gray-400">Neutral</span>
+        <span className="text-gray-500 dark:text-gray-400">Neutral</span>
         <span>{Math.round(totals.neutral || 0)}</span>
       </div>
       <div className="flex justify-between gap-2 sm:gap-6 pt-1 mt-2 border-t border-gray-200 dark:border-gray-700">
@@ -118,7 +111,7 @@ const TotalStats = ({ data }: { data: EmailCount[] }) => {
 };
 
 interface Props {
-  results?: VibeloopResults | null;
+  results?: VibecheckResults | null;
   isAnalyzing?: boolean;
   messages?: GmailMessage[];
   sentiments?: EmailSentiment[];
@@ -372,7 +365,7 @@ export default function EmailCountChart({
                     name="Positive"
                     stackId="1"
                     stroke="none"
-                    fill="#10B981"
+                    fill="#059669"
                     activeDot={false}
                     isAnimationActive={false}
                   />
@@ -392,7 +385,7 @@ export default function EmailCountChart({
                     name="Mixed"
                     stackId="1"
                     stroke="none"
-                    fill="#F59E0B"
+                    fill="#D97706"
                     activeDot={false}
                     isAnimationActive={false}
                   />
@@ -402,7 +395,7 @@ export default function EmailCountChart({
                     name="Neutral"
                     stackId="1"
                     stroke="none"
-                    fill="#9CA3AF"
+                    fill="#6B7280"
                     activeDot={false}
                     isAnimationActive={false}
                   />

@@ -1,60 +1,44 @@
-import type { EmbeddingWithMetadata } from './openai';
+// In-memory caches keyed by Gmail message ID. Emails are immutable, so entries
+// never need invalidation; the TTL just bounds staleness and the entry cap bounds
+// memory. State is per server process — fine for a single-instance deployment.
 
-interface CacheEntry {
-  embeddings: EmbeddingWithMetadata[];
-  timestamp: number;
-}
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const MAX_ENTRIES = 5000;
 
-const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+class TtlCache<V> {
+  private store = new Map<string, { value: V; timestamp: number }>();
 
-class EmbeddingsCache {
-  private cache: Map<string, CacheEntry>;
-  
-  constructor() {
-    this.cache = new Map();
-  }
-  
-  generateKey(messageId: string, content: string): string {
-    return `${messageId}:${content.length}`; // Simple key based on message ID and content length
-  }
-  
-  get(messageId: string, content: string): EmbeddingWithMetadata[] | null {
-    const key = this.generateKey(messageId, content);
-    const entry = this.cache.get(key);
-    
-    if (!entry) return null;
-    
-    // Check if cache entry has expired
-    if (Date.now() - entry.timestamp > CACHE_DURATION) {
-      this.cache.delete(key);
-      return null;
+  // Returns undefined on miss; a cached value may itself be null (see insightCache).
+  get(key: string): V | undefined {
+    const entry = this.store.get(key);
+    if (!entry) return undefined;
+
+    if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+      this.store.delete(key);
+      return undefined;
     }
-    
-    return entry.embeddings;
+
+    return entry.value;
   }
-  
-  set(messageId: string, content: string, embeddings: EmbeddingWithMetadata[]): void {
-    const key = this.generateKey(messageId, content);
-    this.cache.set(key, {
-      embeddings,
-      timestamp: Date.now(),
-    });
-  }
-  
-  clear(): void {
-    this.cache.clear();
-  }
-  
-  // Clean up expired entries
-  cleanup(): void {
-    const now = Date.now();
-    for (const [key, entry] of this.cache.entries()) {
-      if (now - entry.timestamp > CACHE_DURATION) {
-        this.cache.delete(key);
-      }
+
+  set(key: string, value: V): void {
+    // Map iterates in insertion order, so the first key is the oldest entry
+    if (this.store.size >= MAX_ENTRIES && !this.store.has(key)) {
+      const oldest = this.store.keys().next().value;
+      if (oldest !== undefined) this.store.delete(oldest);
     }
+
+    this.store.set(key, { value, timestamp: Date.now() });
   }
 }
 
-// Export a singleton instance
-export const embeddingsCache = new EmbeddingsCache(); 
+// The raw fields GPT extracts for a message. null means GPT analyzed the message
+// and produced no insight, cached so we don't pay to re-ask.
+export interface CachedInsight {
+  insight: string;
+  quote: string;
+  category: 'praise' | 'pain' | 'feature';
+}
+
+export const embeddingCache = new TtlCache<number[]>();
+export const insightCache = new TtlCache<CachedInsight | null>();

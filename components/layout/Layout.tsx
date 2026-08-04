@@ -27,7 +27,7 @@ export default function Layout({ children, isAuthenticated, userEmail, onSignIn,
                 'relative inline-block hover:opacity-80',
                 animation.transition
               )}>
-                Vibeloop
+                Vibecheck
               </h1>
             </Link>
             <div className={cn(layout.flex.center, 'gap-2 sm:gap-3 flex-shrink-0')}>
@@ -41,7 +41,7 @@ export default function Layout({ children, isAuthenticated, userEmail, onSignIn,
                     className={cn(
                       button.base,
                       button.sizes.sm,
-                      'bg-rose-500 text-white hover:bg-rose-600',
+                      'bg-rose-600 text-white hover:bg-rose-700',
                       button.shapes.pill
                     )}
                   >
@@ -54,7 +54,7 @@ export default function Layout({ children, isAuthenticated, userEmail, onSignIn,
                   className={cn(
                     button.base,
                     button.sizes.sm,
-                    'bg-indigo-500 text-white hover:bg-indigo-600',
+                    'bg-indigo-600 text-white hover:bg-indigo-700',
                     button.shapes.pill
                   )}
                 >
@@ -77,7 +77,7 @@ export default function Layout({ children, isAuthenticated, userEmail, onSignIn,
         <footer className={page.footer}>
           <div className={cn(layout.container, 'text-center')}>
             <p className={cn(text.sizes.sm, text.colors.default, 'md:text-base')}>
-              © {currentYear} Vibeloop. Made with ❤️ for better feedback.
+              © {currentYear} Vibecheck. Made with ❤️ for better feedback.
             </p>
           </div>
         </footer>

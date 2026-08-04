@@ -1,3 +1,12 @@
+// Production origin for CORS. On Vercel, VERCEL_PROJECT_PRODUCTION_URL is the stable
+// production host (e.g. vibecheck.vercel.app or a custom domain); ALLOWED_ORIGINS
+// overrides it explicitly if ever needed.
+const productionOrigin =
+  process.env.ALLOWED_ORIGINS ||
+  (process.env.VERCEL_PROJECT_PRODUCTION_URL && `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`) ||
+  (process.env.VERCEL_URL && `https://${process.env.VERCEL_URL}`) ||
+  'http://localhost:3000';
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -10,9 +19,7 @@ const nextConfig = {
           {
             // Only allow specific origins in production
             key: 'Access-Control-Allow-Origin',
-            value: process.env.NODE_ENV === 'production'
-              ? process.env.ALLOWED_ORIGINS || 'https://vibeloop.tech'  // Production domain
-              : '*'
+            value: process.env.NODE_ENV === 'production' ? productionOrigin : '*'
           },
           {
             key: 'Access-Control-Allow-Methods',

@@ -1,7 +1,7 @@
 import NextAuth, { Account } from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
 import type { JWT } from 'next-auth/jwt';
-import type { Session } from 'next-auth';
+import type { Session, NextAuthOptions } from 'next-auth';
 import { logger } from '../../../utils/logging';
 import { env } from '../../../lib/env';
 
@@ -54,7 +54,8 @@ async function refreshAccessToken(token: JWT) {
   }
 }
 
-const authOptions = {
+// Exported so API routes can validate the caller's session via getServerSession
+export const authOptions: NextAuthOptions = {
   providers: [
     GoogleProvider({
       clientId: env.GOOGLE_ID,

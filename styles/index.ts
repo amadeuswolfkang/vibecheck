@@ -3,22 +3,6 @@ export function cn(...classes: (string | undefined | false | null)[]) {
   return classes.filter(Boolean).join(' ');
 }
 
-// Helper to create component classes with variants
-export function createStyles<T extends Record<string, string>>(
-  baseStyles: string,
-  variants: T,
-  defaultVariant?: keyof T
-) {
-  return {
-    base: baseStyles,
-    variants,
-    getStyles: (variant?: keyof T) => {
-      const selectedVariant = variant || defaultVariant;
-      return cn(baseStyles, selectedVariant ? variants[selectedVariant] : '');
-    },
-  };
-}
-
 // Button variants
 export const button = {
   base: 'inline-flex items-center justify-center font-medium transition-colors duration-200',
@@ -28,9 +12,9 @@ export const button = {
     lg: 'text-lg px-8 py-3',
   },
   variants: {
-    primary: 'bg-indigo-500 text-white hover:bg-indigo-600',
-    secondary: 'bg-emerald-500 text-white hover:bg-emerald-600',
-    danger: 'bg-rose-500 text-white hover:bg-rose-600',
+    primary: 'bg-indigo-600 text-white hover:bg-indigo-700',
+    secondary: 'bg-emerald-700 text-white hover:bg-emerald-800',
+    danger: 'bg-rose-600 text-white hover:bg-rose-700',
     ghost: 'hover:bg-slate-200 dark:hover:bg-slate-700/50',
   },
   shapes: {
@@ -143,7 +127,7 @@ export const badge = {
 
 // Card variants and styles
 export const card = {
-  base: 'bg-white dark:bg-slate-800 rounded-xl transition-all',
+  base: 'bg-white dark:bg-slate-800 rounded-xl',
   padding: {
     none: '',
     sm: 'p-4',
@@ -183,7 +167,7 @@ export const background = {
 
 // Icon button styles
 export const iconButton = {
-  base: 'inline-flex items-center justify-center transition-colors duration-200',
+  base: 'inline-flex items-center justify-center',
   sizes: {
     sm: 'p-1.5',
     base: 'p-2',
@@ -236,7 +220,6 @@ export const page = {
     'min-h-screen flex flex-col',
     background.gradient.light,
     background.gradient.dark,
-    'transition-all',
     text.colors.default
   ),
   header: cn(
